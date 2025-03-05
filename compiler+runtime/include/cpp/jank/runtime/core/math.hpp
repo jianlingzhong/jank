@@ -14,13 +14,23 @@ namespace jank::runtime
   object_ptr add(object_ptr l, object_ptr r);
   object_ptr add(obj::integer_ptr l, object_ptr r);
   object_ptr add(object_ptr l, obj::integer_ptr r);
-  object_ptr add(object_ptr l, obj::ratio_ptr r);
+  object_ptr add(obj::big_integer_ptr l, object_ptr r);
+  object_ptr add(object_ptr l, obj::big_integer_ptr r);
+  object_ptr add(obj::integer_ptr l, obj::big_integer_ptr r);
+  object_ptr add(obj::big_integer_ptr l, obj::integer_ptr r);
+  object_ptr add(obj::big_integer_ptr l, obj::big_integer_ptr r);
+  object_ptr add(obj::big_integer_ptr l, obj::ratio_ptr r);
   native_integer add(obj::integer_ptr l, obj::integer_ptr r);
+  native_integer add(obj::big_integer_ptr l, obj::big_integer_ptr r);
+  native_integer add(obj::big_integer_ptr l, obj::integer_ptr r);
   native_real add(obj::real_ptr l, obj::real_ptr r);
   native_real add(obj::real_ptr l, object_ptr r);
   native_real add(object_ptr l, obj::real_ptr r);
   native_real add(obj::real_ptr l, obj::integer_ptr r);
   native_real add(obj::integer_ptr l, obj::real_ptr r);
+  native_real add(obj::big_integer_ptr l, obj::real_ptr r);
+  native_real add(obj::real_ptr l, obj::big_integer_ptr r);
+  native_real add(obj::big_integer_ptr l, obj::big_integer_ptr r);
 
   native_real add(object_ptr l, native_real r);
   native_real add(native_real l, object_ptr r);

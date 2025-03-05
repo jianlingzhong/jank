@@ -139,6 +139,76 @@ namespace jank::runtime::obj
     return static_cast<native_real>(data);
   }
 
+  /***** big_integer *****/
+  big_integer::big_integer(native_persistent_string const & d)
+    : data{ d }
+  {
+  }
+
+  big_integer::big_integer(native_integer const d)
+  : data{std::to_string(d).c_str()}
+  {
+  }
+
+  native_bool big_integer::equal(object const &o) const
+  {
+    if(o.type != object_type::big_integer)
+    {
+      return false;
+    }
+
+    auto const i(expect_object<big_integer>(&o));
+    return data == i->data;
+  }
+
+  native_persistent_string big_integer::to_string() const
+  {
+    util::string_builder sb;
+    return sb(data).release();
+  }
+
+  void big_integer::to_string(util::string_builder &buff) const
+  {
+    buff(data);
+  }
+
+  native_persistent_string big_integer::to_code_string() const
+  {
+    return to_string();
+  }
+
+  native_hash big_integer::to_hash() const
+  {
+    return hash::string(data);
+  }
+
+  native_integer big_integer::compare(object const &o) const
+  {
+    return visit_number_like(
+      [this](auto const typed_o) -> native_integer {
+        return (std::stoll(data) > std::stoll(typed_o->data)) - (std::stoll(data) < std::stoll(typed_o->data));
+      },
+      [&]() -> native_integer {
+        throw std::runtime_error{ fmt::format("not comparable: {}", runtime::to_string(&o)) };
+      },
+      &o);
+  }
+
+  native_integer big_integer::compare(big_integer const &o) const
+  {
+    return (std::stoll(data) > std::stoll(o.data)) - (std::stoll(data) < o.data);
+  }
+
+  native_integer big_integer::to_integer() const
+  {
+    return std::stoll(data);
+  }
+
+  native_real big_integer::to_real() const
+  {
+    return std::stold(data);
+  }
+
   /***** real *****/
   real::real(native_real const d)
     : data{ d }
@@ -156,6 +226,55 @@ namespace jank::runtime::obj
     std::hash<native_real> const hasher{};
     return hasher(data) == hasher(r->data);
   }
+
+  native_persistent_string real::to_string() const
+  {
+    util::string_builder sb;
+    return sb(data).release();
+  }
+
+  void real::to_string(util::string_builder &buff) const
+  {
+    buff(data);
+  }
+
+  native_persistent_string real::to_code_string() const
+  {
+    return to_string();
+  }
+
+  native_hash real::to_hash() const
+  {
+    return hash::real(data);
+  }
+
+  native_integer real::compare(object const &o) const
+  {
+    return visit_number_like(
+      [this](auto const typed_o) -> native_integer {
+        return (data > typed_o->data) - (data < typed_o->data);
+      },
+      [&]() -> native_integer {
+        throw std::runtime_error{ fmt::format("not comparable: {}", runtime::to_string(&o)) };
+      },
+      &o);
+  }
+
+  native_integer real::compare(real const &o) const
+  {
+    return (data > o.data) - (data < o.data);
+  }
+
+  native_integer real::to_integer() const
+  {
+    return static_cast<native_integer>(data);
+  }
+
+  native_real real::to_real() const
+  {
+    return data;
+  }
+}
 
   native_persistent_string real::to_string() const
   {

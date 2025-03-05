@@ -137,7 +137,11 @@ namespace jank::runtime
   {
     return visit_number_like(
       [](auto const typed_r, auto const typed_l) -> object_ptr {
-        return make_box(typed_l + typed_r->data);
+        if constexpr (std::same_as<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_r)> >)
+        {
+          return make_box(std::stoll(typed_l - typed_r->data);
+        }
+        return make_box(typed_l - typed_r->data);
       },
       r,
       l);
@@ -154,7 +158,11 @@ namespace jank::runtime
       [](auto const typed_l, auto const r) -> object_ptr {
         return visit_number_like(
           [](auto const typed_r, auto const typed_l) -> object_ptr {
-            return make_box(typed_l - typed_r->data);
+              if constexpr (std::same_as<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_l)> >)
+              {
+                return make_box(std::stoll(typed_l->data) - std::stoll(typed_r->data));
+              }
+              return make_box(typed_l->data - typed_r->data);
           },
           r,
           typed_l->data);
@@ -162,12 +170,35 @@ namespace jank::runtime
       l,
       r);
   }
+  
+    object_ptr sub(obj::big_integer_ptr const l, obj::big_integer_ptr const r)
+  {
+        return make_box(std::stoll(l->data) - std::stoll(r->data));
+  }
 
   object_ptr sub(obj::integer_ptr const l, object_ptr const r)
   {
     return visit_number_like(
       [](auto const typed_r, auto const typed_l) -> object_ptr {
-        return make_box(typed_l - typed_r->data);
+        return make_box(typed_l->data - typed_r->data);
+      },
+      r,
+      l->data);
+  }
+  
+      object_ptr sub(obj::big_integer_ptr const l, obj::big_integer_ptr const r)
+  {
+        return make_box(std::stoll(l->data) - std::stoll(r->data));
+  }
+  object_ptr sub(obj::big_integer_ptr const l, object_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_r, auto const typed_l) -> object_ptr {
+          if constexpr(std::same_as<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_r)>>) {
+              return make_box(std::stoll(typed_l->data) - std::stoll(typed_r->data));
+          } else {
+            return make_box(typed_l->data - typed_r->data);
+          }
       },
       r,
       l->data);
@@ -177,12 +208,31 @@ namespace jank::runtime
   {
     return visit_number_like(
       [](auto const typed_l, auto const typed_r) -> object_ptr {
-        return make_box(typed_l->data - typed_r);
+        return make_box(typed_l->data - typed_r->data);
       },
       l,
       r->data);
   }
-
+      object_ptr sub(object_ptr const l, obj::big_integer_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_l, auto const typed_r) -> object_ptr {
+        return make_box(std::stoll(typed_l->data) - std::stoll(typed_r->data));
+      },
+      l,
+      r->data);
+  }
+  
+      object_ptr sub(obj::integer_ptr const l, obj::big_integer_ptr const r)
+  {
+    return make_box(std::stoll(l->data) - std::stoll(r->data));
+  }
+  
+      object_ptr sub(obj::big_integer_ptr const l, obj::big_integer_ptr const r)
+  {
+    return make_box(std::stoll(l->data) - std::stoll(r->data));
+  }
+  
   native_integer sub(obj::integer_ptr const l, obj::integer_ptr const r)
   {
     return l->data - r->data;
@@ -239,6 +289,7 @@ namespace jank::runtime
   {
     return l - r;
   }
+}
 
   native_real sub(native_integer const l, native_real const r)
   {
@@ -281,13 +332,24 @@ namespace jank::runtime
       [](auto const typed_l, auto const r) -> object_ptr {
         return visit_number_like(
           [](auto const typed_r, auto const typed_l) -> object_ptr {
-            return make_box(typed_l / typed_r->data);
+            if constexpr (std::is_same<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_l)>>)
+            {
+              if constexpr (std::is_same<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_r)> >) {
+                  return make_box(std::stoll(typed_l->data) / std::stoll(typed_r->data));
+              } else {
+                return make_box(typed_l / typed_r->data);
+              }
           },
           r,
           typed_l->data);
       },
       l,
       r);
+  }
+  
+  object_ptr div(obj::big_integer_ptr const l, obj::big_integer_ptr const r)
+  {
+      return make_box(std::stoll(l->data) / std::stoll(r->data));
   }
 
   object_ptr div(obj::integer_ptr const l, object_ptr const r)
@@ -309,11 +371,144 @@ namespace jank::runtime
       l,
       r->data);
   }
+  
+  object_ptr div(obj::integer_ptr const l, obj::big_integer_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_r, auto const typed_l) -> object_ptr {
+        return make_box(std::stoll(typed_l->data)/typed_r);
+      },
+      l->data);
+  }
+    object_ptr div(obj::big_integer_ptr const l, obj::integer_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_l, auto const typed_r) -> object_ptr {
+        return make_box(std::stoll(typed_l->data) / typed_r->data);
+      },
+      l,
+      r->data);
+  }
+  
+    object_ptr div(obj::big_integer_ptr const l, object_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_l, auto const r) -> object_ptr {
+        return visit_number_like(
+          [](auto const typed_r, auto const typed_l) -> object_ptr {
+            return make_box(typed_l / typed_r->data);
+          },
+          r,
+          typed_l->data);
+      },
+      l,
+      r);
+  }
 
   native_integer div(obj::integer_ptr const l, obj::integer_ptr const r)
   {
     return l->data / r->data;
   }
+  
+  native_integer div(obj::big_integer_ptr const l, obj::big_integer_ptr const r)
+  {
+    return std::stoll(l->data) / std::stoll(r->data);
+  }
+  
+    native_real div(obj::big_integer_ptr const l, obj::real_ptr const r)
+  {
+    return static_cast<native_real>(std::stoll(l->data)) / r->data;
+  }
+  
+  native_real div(obj::real_ptr const l, obj::real_ptr const r)
+  {
+    return l->data / r->data;
+  }
+
+  native_real div(obj::real_ptr const l, object_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_r, auto const typed_l) -> native_real { return typed_l / typed_r->data; },
+      r,
+      l->data);
+  }
+
+  native_real div(object_ptr const l, obj::real_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_l, auto const typed_r) -> native_real { return typed_l->data / typed_r; },
+      l,
+      r->data);
+  }
+  
+  
+  
+  native_real div(obj::real_ptr const l, obj::integer_ptr const r)
+  {
+    return l->data / static_cast<native_real>(r->data);
+  }
+
+  native_real div(obj::integer_ptr const l, obj::real_ptr const r)
+  {
+    return static_cast<native_real>(l->data) / r->data;
+  }
+
+  native_real div(object_ptr const l, native_real const r)
+  {
+    return visit_number_like(
+      [](auto const typed_l, auto const typed_r) -> native_real { return typed_l->data / typed_r; },
+      l,
+      r);
+  }
+
+  native_real div(native_real const l, object_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_r, auto const typed_l) -> native_real { return typed_l / typed_r->data; },
+      r,
+      l);
+  }
+
+  native_real div(native_real const l, native_real const r)
+  {
+    return l / r;
+  }
+
+  native_real div(native_integer const l, native_real const r)
+  {
+    return static_cast<native_real>(l) / r;
+  }
+
+  native_real div(native_real const l, native_integer const r)
+  {
+    return l / static_cast<native_real>(r);
+  }
+
+  object_ptr div(object_ptr const l, native_integer const r)
+  {
+    return visit_number_like(
+      [](auto const typed_l, auto const typed_r) -> object_ptr {
+        return make_box(typed_l->data / typed_r);
+      },
+      l,
+      r);
+  }
+
+  object_ptr div(native_integer const l, object_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_r, auto const typed_l) -> object_ptr {
+        return make_box(typed_l / typed_r->data);
+      },
+      r,
+      l);
+  }
+
+  native_integer div(native_integer const l, native_integer const r)
+  {
+    return l / r;
+  }
+}
 
   native_real div(obj::real_ptr const l, obj::real_ptr const r)
   {
@@ -408,7 +603,11 @@ namespace jank::runtime
       [](auto const typed_l, auto const r) -> object_ptr {
         return visit_number_like(
           [](auto const typed_r, auto const typed_l) -> object_ptr {
-            return make_box(typed_l * typed_r->data);
+            if constexpr(std::is_same<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_l)> >){
+              return make_box(std::stoll(typed_l->data) * std::stoll(typed_r->data));
+            } else {
+              return make_box(typed_l->data * typed_r->data);
+            }
           },
           r,
           typed_l->data);
@@ -1221,7 +1420,11 @@ namespace jank::runtime
       [](auto const typed_l, auto const r) -> object_ptr {
         return visit_number_like(
           [](auto const typed_r, auto const typed_l) -> object_ptr {
-            return typed_r->data > typed_l ? make_box(typed_r) : make_box(typed_l);
+              if constexpr(std::is_same<std::decay_t<obj::big_integer_ptr>, std::decay_t<decltype(typed_r)> >){
+                  return make_box(std::stoll(typed_l->data) * std::stoll(typed_r->data));
+              }else {
+                 return make_box(typed_l->data * typed_r->data);
+              }
           },
           r,
           typed_l->data);
@@ -1557,6 +1760,22 @@ namespace jank::runtime
       },
       l,
       r);
+  }
+      object_ptr mul(obj::big_integer_ptr const l, object_ptr const r)
+  {
+    return visit_number_like(
+      [](auto const typed_r, auto const typed_l) -> object_ptr {
+        if constexpr(std::is_same<std::decay_t<obj::integer_ptr>, std::decay_t<decltype(typed_r)> >){
+          return make_box(std::stoll(typed_l->data) * typed_r->data);
+        }else{
+          return make_box(typed_l->data * typed_r->data);
+        }
+      },
+      r,
+      l->data);
+  }
+    object_ptr mul(obj::big_integer_ptr const l, obj::big_integer_ptr const r){
+      return make_box(std::stoll(l->data) * std::stoll(r->data));
   }
 
   native_real pow(native_integer const l, object_ptr const r)

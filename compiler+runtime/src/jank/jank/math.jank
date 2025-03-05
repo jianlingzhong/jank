@@ -19,4 +19,14 @@
   ^{:arities {2 {:supports-unboxed-input? true
                  :unboxed-output? true}}}
   pow [x y]
-  (native/raw "__value = make_box(std::pow(to_real(~{ x }), to_real(~{ y })));"))
+  (native/raw "__value = make_box(runtime::pow(~{ x }, ~{ y }));"))
+(defn + [x y]
+  (native/raw "__value = make_box(runtime::add(~{ x }, ~{ y }));"))
+(defn - [x y]
+  (native/raw "__value = runtime::sub(~{ x }, ~{ y });"))
+
+(defn / [x y]
+  (native/raw "__value = runtime::div(~{ x } ~{ y });"))
+(defn * [x y]
+  (native/raw "__value = runtime::mul(~{ x } ~{ y });"))
+  
