@@ -52,6 +52,7 @@ namespace jank::ui
       case token_kind::comment:
         return e | color(Color::GrayLight);
       case token_kind::integer:
+      case token_kind::bigint:
       case token_kind::real:
       case token_kind::ratio:
       case token_kind::boolean:

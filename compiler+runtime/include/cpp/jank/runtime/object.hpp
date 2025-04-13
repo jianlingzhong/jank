@@ -15,6 +15,7 @@ namespace jank::runtime
     integer,
     real,
     ratio,
+    bigint,
 
     persistent_string,
     persistent_string_sequence,
@@ -98,6 +99,8 @@ namespace jank::runtime
         return "real";
       case object_type::ratio:
         return "ratio";
+      case object_type::bigint:
+        return "bigint";
 
       case object_type::persistent_string:
         return "persistent_string";

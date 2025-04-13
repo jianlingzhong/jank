@@ -1,9 +1,16 @@
 #include <limits>
 #include <numeric>
 #include <cmath>
+#include <boost/rational.hpp>
+#include <boost/numeric/conversion/numeric_cast_traits.hpp>
 
 #include <jank/runtime/obj/ratio.hpp>
 #include <jank/runtime/visit.hpp>
+#include <jank/runtime/core/make_box.hpp>
+#include <jank/runtime/obj/number.hpp>
+#include <jank/runtime/obj/bigint.hpp>
+#include <jank/runtime/obj/nil.hpp>
+#include <jank/runtime/rtti.hpp>
 
 namespace jank::runtime::obj
 {
@@ -546,5 +553,183 @@ namespace jank::runtime::obj
   native_bool operator<(ratio_data const &l, native_bool const r)
   {
     return l < (r ? 1ll : 0ll);
+  }
+
+  /************************** bigint ******************************************/
+  native_bool operator==(ratio_data const &l, native_bigint const &r)
+  {
+    return l == r.convert_to<native_integer>();
+  }
+
+  native_bool operator==(native_bigint const &l, ratio_data const &r)
+  {
+    return l.convert_to<native_integer>() == r;
+  }
+
+  native_bool operator!=(ratio_data const &l, native_bigint const &r)
+  {
+    return !(l == r);
+  }
+
+  native_bool operator!=(native_bigint const &l, ratio_data const &r)
+  {
+    return !(l == r);
+  }
+
+  native_bool operator<(ratio_data const &l, native_bigint const &r)
+  {
+    // Potential truncation/wrap-around if r is outside native_integer range
+    return l < r.convert_to<native_integer>();
+  }
+
+  native_bool operator<(native_bigint const &l, ratio_data const &r)
+  {
+    // Potential truncation/wrap-around if l is outside native_integer range
+    return l.convert_to<native_integer>() < r;
+  }
+
+  native_bool operator>(ratio_data const &l, native_bigint const &r)
+  {
+    // Potential truncation/wrap-around if r is outside native_integer range
+    return l > r.convert_to<native_integer>();
+  }
+
+  native_bool operator>(native_bigint const &l, ratio_data const &r)
+  {
+    // Potential truncation/wrap-around if l is outside native_integer range
+    return l.convert_to<native_integer>() > r;
+  }
+
+  native_bool operator<=(ratio_data const &l, native_bigint const &r)
+  {
+    // Potential truncation/wrap-around if r is outside native_integer range
+    return l <= r.convert_to<native_integer>();
+  }
+
+  native_bool operator<=(native_bigint const &l, ratio_data const &r)
+  {
+    // Potential truncation/wrap-around if l is outside native_integer range
+    return l.convert_to<native_integer>() <= r;
+  }
+
+  native_bool operator>=(ratio_data const &l, native_bigint const &r)
+  {
+    // Potential truncation/wrap-around if r is outside native_integer range
+    return l >= r.convert_to<native_integer>();
+  }
+
+  native_bool operator>=(native_bigint const &l, ratio_data const &r)
+  {
+    // Potential truncation/wrap-around if l is outside native_integer range
+    return l.convert_to<native_integer>() >= r;
+  }
+
+  // Helper function to create ratio or simplify to integer/bigint
+  // (Adapted from math.cpp's create_division_result)
+  static object_ptr create_rational_result(boost::rational<native_bigint> const &rational_result)
+  {
+    if(rational_result.denominator() == 1)
+    {
+      // Result is an integer, return a bigint object
+      return make_box(rational_result.numerator());
+    }
+    else
+    {
+      // Denominator is not 1, result is a ratio.
+      // Current ratio_data uses native_integer, so we must convert (potentially lossy).
+      // TODO: Upgrade ratio_data to use native_bigint.
+      try
+      {
+        native_integer num_int = boost::numeric_cast<native_integer>(rational_result.numerator());
+        native_integer den_int = boost::numeric_cast<native_integer>(rational_result.denominator());
+        // Check fidelity - Note: This check might be insufficient if intermediate values overflowed native_integer during boost::rational operations before this point.
+        // A full fidelity check would require comparing the original rational value with the converted one, e.g.,
+        // if (boost::rational<native_bigint>(num_int, den_int) == rational_result) ...
+        // However, since ratio_data is limited to native_integer anyway, we proceed if the numeric_cast succeeds.
+
+        // Use ratio::create which handles potential simplification if the result happens to be an integer after conversion
+        return ratio::create(num_int, den_int);
+      }
+      catch(boost::numeric::conversion_error const &) // Now this should be found
+      {
+        // Conversion failed - throw.
+        throw std::runtime_error(
+          "Arithmetic result numerator/denominator too large for ratio<int64_t>");
+      }
+      // Catch other potential exceptions from boost::rational if necessary
+    }
+  }
+
+  // ratio_data + native_bigint
+  object_ptr operator+(ratio_data const &l, native_bigint const &r)
+  {
+    boost::rational<native_bigint> l_rat(l.numerator, l.denominator);
+    boost::rational<native_bigint> r_rat(r);
+    return create_rational_result(l_rat + r_rat);
+  }
+
+  // native_bigint + ratio_data
+  object_ptr operator+(native_bigint const &l, ratio_data const &r)
+  {
+    boost::rational<native_bigint> l_rat(l);
+    boost::rational<native_bigint> r_rat(r.numerator, r.denominator);
+    return create_rational_result(l_rat + r_rat);
+  }
+
+  // ratio_data - native_bigint
+  object_ptr operator-(ratio_data const &l, native_bigint const &r)
+  {
+    boost::rational<native_bigint> l_rat(l.numerator, l.denominator);
+    boost::rational<native_bigint> r_rat(r);
+    return create_rational_result(l_rat - r_rat);
+  }
+
+  // native_bigint - ratio_data
+  object_ptr operator-(native_bigint const &l, ratio_data const &r)
+  {
+    boost::rational<native_bigint> l_rat(l);
+    boost::rational<native_bigint> r_rat(r.numerator, r.denominator);
+    return create_rational_result(l_rat - r_rat);
+  }
+
+  // ratio_data * native_bigint
+  object_ptr operator*(ratio_data const &l, native_bigint const &r)
+  {
+    boost::rational<native_bigint> l_rat(l.numerator, l.denominator);
+    boost::rational<native_bigint> r_rat(r);
+    return create_rational_result(l_rat * r_rat);
+  }
+
+  // native_bigint * ratio_data
+  object_ptr operator*(native_bigint const &l, ratio_data const &r)
+  {
+    boost::rational<native_bigint> l_rat(l);
+    boost::rational<native_bigint> r_rat(r.numerator, r.denominator);
+    return create_rational_result(l_rat * r_rat);
+  }
+
+  // ratio_data / native_bigint
+  object_ptr operator/(ratio_data const &l, native_bigint const &r)
+  {
+    if(r == 0)
+    {
+      throw std::runtime_error("Division by zero");
+    }
+    boost::rational<native_bigint> l_rat(l.numerator, l.denominator);
+    boost::rational<native_bigint> r_rat(r);
+    return create_rational_result(l_rat / r_rat);
+  }
+
+  // native_bigint / ratio_data
+  object_ptr operator/(native_bigint const &l, ratio_data const &r)
+  {
+    if(r.numerator == 0)
+    {
+      // Dividing by a zero ratio
+      throw std::runtime_error("Division by zero");
+    }
+    boost::rational<native_bigint> l_rat(l);
+    boost::rational<native_bigint> r_rat(r.numerator, r.denominator);
+    return create_rational_result(l_rat / r_rat);
   }
 }

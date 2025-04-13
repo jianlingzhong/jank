@@ -5,6 +5,7 @@
 #include <jank/result.hpp>
 #include <jank/option.hpp>
 #include <jank/error.hpp>
+#include <jank/runtime/obj/bigint.hpp>
 
 namespace jank::read::lex
 {
@@ -43,6 +44,8 @@ namespace jank::read::lex
     real,
     /* Has two integer data. */
     ratio,
+    /* Has bigint data. */
+    bigint,
     /* Has string data. */
     string,
     /* Has string data. */
@@ -104,6 +107,8 @@ namespace jank::read::lex
         return "real";
       case token_kind::ratio:
         return "ratio";
+      case token_kind::bigint:
+        return "bigint";
       case token_kind::string:
         return "string";
       case token_kind::escaped_string:
@@ -167,6 +172,10 @@ namespace jank::read::lex
           token_kind const k,
           native_bool const);
     token(movable_position const &s, movable_position const &e, token_kind const k, ratio const);
+    token(movable_position const &s,
+          movable_position const &e,
+          token_kind const k,
+          runtime::obj::native_bigint const);
 
 #ifdef JANK_TEST
     /* These assume everything is on one line; very useful for tests, but not elsewhere. */
@@ -198,7 +207,8 @@ namespace jank::read::lex
                  native_real,
                  native_persistent_string_view,
                  native_bool,
-                 ratio>
+                 ratio,
+                 runtime::obj::native_bigint>
       data;
   };
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <jank/runtime/object.hpp>
+#include <jank/runtime/obj/bigint.hpp>
 
 namespace jank::runtime::obj
 {
@@ -137,4 +138,28 @@ namespace jank::runtime::obj
   native_bool operator>=(native_real l, ratio_data const &r);
   native_bool operator>=(ratio_data const &l, native_integer r);
   native_bool operator>=(native_integer l, ratio_data const &r);
+
+  /************************** bigint comparisons ******************************/
+  native_bool operator!=(native_bigint const &l, ratio_data const &r);
+  native_bool operator!=(ratio_data const &l, native_bigint const &r);
+  native_bool operator<(native_bigint const &l, ratio_data const &r);
+  native_bool operator<(ratio_data const &l, native_bigint const &r);
+  native_bool operator<=(native_bigint const &l, ratio_data const &r);
+  native_bool operator<=(ratio_data const &l, native_bigint const &r);
+  native_bool operator==(native_bigint const &l, ratio_data const &r);
+  native_bool operator==(ratio_data const &l, native_bigint const &r);
+  native_bool operator>(native_bigint const &l, ratio_data const &r);
+  native_bool operator>(ratio_data const &l, native_bigint const &r);
+  native_bool operator>=(native_bigint const &l, ratio_data const &r);
+  native_bool operator>=(ratio_data const &l, native_bigint const &r);
+
+  /************************** bigint arithmetic *******************************/
+  object_ptr operator+(ratio_data const &l, native_bigint const &r);
+  object_ptr operator+(native_bigint const &l, ratio_data const &r);
+  object_ptr operator-(ratio_data const &l, native_bigint const &r);
+  object_ptr operator-(native_bigint const &l, ratio_data const &r);
+  object_ptr operator*(ratio_data const &l, native_bigint const &r);
+  object_ptr operator*(native_bigint const &l, ratio_data const &r);
+  object_ptr operator/(ratio_data const &l, native_bigint const &r);
+  object_ptr operator/(native_bigint const &l, ratio_data const &r);
 }

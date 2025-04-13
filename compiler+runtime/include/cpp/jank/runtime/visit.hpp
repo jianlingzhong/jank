@@ -32,6 +32,7 @@
 #include <jank/runtime/obj/integer_range.hpp>
 #include <jank/runtime/obj/repeat.hpp>
 #include <jank/runtime/obj/ratio.hpp>
+#include <jank/runtime/obj/bigint.hpp>
 #include <jank/runtime/obj/jit_function.hpp>
 #include <jank/runtime/obj/jit_closure.hpp>
 #include <jank/runtime/obj/multi_function.hpp>
@@ -218,6 +219,11 @@ namespace jank::runtime
       case object_type::ratio:
         {
           return fn(expect_object<obj::ratio>(erased), std::forward<Args>(args)...);
+        }
+        break;
+      case object_type::bigint:
+        {
+          return fn(expect_object<obj::bigint>(erased), std::forward<Args>(args)...);
         }
         break;
       case object_type::native_array_sequence:
@@ -682,6 +688,11 @@ namespace jank::runtime
       case object_type::ratio:
         {
           return fn(expect_object<obj::ratio>(erased), std::forward<Args>(args)...);
+        }
+        break;
+      case object_type::bigint:
+        {
+          return fn(expect_object<obj::bigint>(erased), std::forward<Args>(args)...);
         }
         break;
       default:

@@ -228,6 +228,7 @@ add_library(
   src/cpp/jank/runtime/obj/integer_range.cpp
   src/cpp/jank/runtime/obj/repeat.cpp
   src/cpp/jank/runtime/obj/ratio.cpp
+  src/cpp/jank/runtime/obj/bigint.cpp
   src/cpp/jank/runtime/obj/iterator.cpp
   src/cpp/jank/runtime/obj/lazy_sequence.cpp
   src/cpp/jank/runtime/obj/chunk_buffer.cpp
