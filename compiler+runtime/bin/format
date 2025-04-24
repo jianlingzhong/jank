@@ -3,8 +3,48 @@
 set -euo pipefail
 
 git_root=$(git rev-parse --show-toplevel)
+echo "Git root: ${git_root}" # Debugging output
 
-for i in $(git status | grep -E "modified:.*[hc]pp" | sed 's/modified:\s*//'); do
-  "${git_root}"/compiler+runtime/build/llvm-install/usr/local/bin/clang-format -i "${i}"
-  echo "formatted" "${i}"
-done
+# Define the path to the preferred clang-format
+PREFERRED_CLANG_FORMAT="${git_root}/compiler+runtime/build/llvm-install/usr/local/bin/clang-format"
+CLANG_FORMAT_BIN=""
+
+# Check if the preferred clang-format exists and is executable
+if [[ -x "${PREFERRED_CLANG_FORMAT}" ]]; then
+  CLANG_FORMAT_BIN="${PREFERRED_CLANG_FORMAT}"
+  echo "Using preferred clang-format: ${CLANG_FORMAT_BIN}"
+else
+  # Try to find the system clang-format
+  if command -v clang-format &>/dev/null; then
+    CLANG_FORMAT_BIN=$(command -v clang-format)
+    echo "Preferred clang-format not found or not executable. Using system clang-format: ${CLANG_FORMAT_BIN}"
+  else
+    echo "Error: Neither preferred nor system clang-format found. Cannot format files."
+    exit 1 # Exit if no formatter is found
+  fi
+fi
+
+# Check if CLANG_FORMAT_BIN is set (it should be unless the script exited)
+if [[ -z "${CLANG_FORMAT_BIN}" ]]; then
+  echo "Error: clang-format binary path is empty."
+  exit 1
+fi
+
+echo "Formatting modified/added C++/HPP files..."
+# Use process substitution and read for safer path handling
+while IFS= read -r relative_path; do
+  # Construct absolute path
+  absolute_path="${git_root}/${relative_path}"
+  echo "Checking file: ${absolute_path}" # Debugging output
+
+  if [[ -f "${absolute_path}" ]]; then
+    echo "Formatting ${relative_path}..." # Let user know which file is being processed
+    "${CLANG_FORMAT_BIN}" -i "${absolute_path}"
+    echo "Formatted ${relative_path}"
+  else
+    echo "Warning: Skipping non-existent file listed by git status: ${relative_path} (Tried path: ${absolute_path})"
+  fi
+  # Extract paths ending in .hpp or .cpp from modified (M) or added (A) files
+done < <(git status --porcelain | grep -E '^\s?[AM]\s+.*\.[hc]pp$' | sed -E 's/^\s?[AM]\s+//')
+
+echo "Formatting complete."

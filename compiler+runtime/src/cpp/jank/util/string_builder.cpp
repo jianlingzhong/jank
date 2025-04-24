@@ -6,6 +6,7 @@
 #pragma clang diagnostic pop
 
 #include <jank/util/string_builder.hpp>
+#include <jank/runtime/obj/big_integer.hpp>
 
 namespace jank::util
 {

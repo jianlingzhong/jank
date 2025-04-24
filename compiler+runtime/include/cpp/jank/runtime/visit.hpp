@@ -690,6 +690,11 @@ namespace jank::runtime
           return fn(expect_object<obj::ratio>(erased), std::forward<Args>(args)...);
         }
         break;
+      case object_type::big_integer:
+        {
+          return fn(expect_object<obj::big_integer>(erased), std::forward<Args>(args)...);
+        }
+        break;
       default:
         return else_fn();
     }

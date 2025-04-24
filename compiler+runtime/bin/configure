@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-
+export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+export PATH="/opt/homebrew/opt/llvm/bin:${PATH}"
+export LDFLAGS="-L/opt/homebrew/opt/llvm/lib ${LDFLAGS:-}"
+export CPPFLAGS="-I/opt/homebrew/opt/llvm/include ${CPPFLAGS:-}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 build_dir="${here}/../build"
 rm -rf "${build_dir}"/{CMakeCache.txt,CMakeFiles}

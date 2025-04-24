@@ -1,4 +1,5 @@
 # LLVM/Clang default paths
+set(llvm_dir "/opt/homebrew/opt/llvm")
 if(NOT DEFINED llvm_dir)
   if(jank_local_clang)
     set(llvm_dir "${CMAKE_BINARY_DIR}/llvm-install/usr/local")

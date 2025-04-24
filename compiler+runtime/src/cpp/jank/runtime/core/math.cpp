@@ -2,6 +2,7 @@
 
 #include <jank/runtime/core/math.hpp>
 #include <jank/runtime/behavior/number_like.hpp>
+#include <jank/runtime/obj/big_integer.hpp>
 #include <jank/runtime/visit.hpp>
 #include <jank/runtime/core/make_box.hpp>
 #include <jank/util/fmt.hpp>
@@ -1606,12 +1607,12 @@ namespace jank::runtime
 
   native_integer numerator(object_ptr const o)
   {
-    return try_object<obj::ratio>(o)->data.numerator;
+    return try_object<obj::ratio>(o)->data.numerator->to_integer();
   }
 
   native_integer denominator(object_ptr const o)
   {
-    return try_object<obj::ratio>(o)->data.denominator;
+    return try_object<obj::ratio>(o)->data.denominator->to_integer();
   }
 
   native_integer to_int(object_ptr const l)
