@@ -273,6 +273,7 @@ add_library(
   src/cpp/jank/analyze/step/force_boxed.cpp
   src/cpp/jank/evaluate.cpp
   src/cpp/jank/codegen/llvm_processor.cpp
+  src/cpp/jank/codegen/llvm_try_catch_finally.cpp
   src/cpp/jank/jit/processor.cpp
 
   # Native module sources.

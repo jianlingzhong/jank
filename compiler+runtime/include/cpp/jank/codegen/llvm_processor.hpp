@@ -177,5 +177,8 @@ namespace jank::codegen
     native_unordered_map<obj::symbol_ref, llvm::Value *> locals;
     /* TODO: Use gc allocator to avoid leaks. */
     std::list<deferred_init> deferred_inits{};
+    bool m_is_in_try_block_for_invoke{};
+    llvm::BasicBlock *m_current_unwind_dest{};
+    llvm::BasicBlock *m_current_unwind_dest_for_invoke{};
   };
 }

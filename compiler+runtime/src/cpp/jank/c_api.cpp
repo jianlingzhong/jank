@@ -894,7 +894,7 @@ extern "C"
 
   void jank_throw(jank_object_ref const o)
   {
-    throw runtime::object_ref{ reinterpret_cast<object *>(o) };
+    throw jank_exception{ reinterpret_cast<object *>(o) };
   }
 
   jank_object_ref jank_try(jank_object_ref const try_fn,

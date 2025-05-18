@@ -1,5 +1,8 @@
 #pragma once
 
+#include "runtime/core/to_string.hpp"
+
+
 #include <jtl/ptr.hpp>
 
 #include <jtl/option.hpp>
@@ -10,6 +13,59 @@
 namespace cpptrace
 {
   struct stacktrace;
+}
+
+namespace jank
+{
+  /*
+     * Custom C++ exception type for exceptions originating from Jank code
+     * or runtime errors that should be catchable by Jank's (try) forms.
+     * This allows LLVM's landingpad to specifically catch Jank-originated
+     * exceptions.
+     */
+  class jank_exception final : public std::exception
+  {
+  public:
+    runtime::object_ref thrown_object;
+
+    /* Optional: Store a C++ stack trace if the exception originated from C++ code
+           that then decided to wrap it as a Jank exception. Not strictly necessary
+           if jank_throw is always called from JIT-ed Jank code. */
+    // std::unique_ptr<cpptrace::stacktrace> trace;
+
+    explicit jank_exception(runtime::object_ref obj)
+      : thrown_object(obj)
+    {
+      jank_debug_assert_throw(thrown_object.is_some()
+                              && "jank_exception cannot be constructed with a nil object_ref, use "
+                                 "jank_nil explicitly if intended");
+    }
+
+    /*
+         * Provides a C-string message.
+         * This can be helpful for debugging or if caught by generic C++ catch blocks.
+         * The message is dynamically generated; for performance-critical paths,
+         * consider if this is acceptable or if a cached string is needed.
+         */
+    char const *what() const noexcept override
+    {
+      // This static is not thread-safe if what() is called concurrently from different threads.
+      // For robust thread-safety, each thread would need its own buffer, or use a thread-local string.
+      // However, what() is often called in a single-threaded context during exception handling.
+      static thread_local std::string msg_cache;
+      try
+      {
+        // Assuming to_code_string is robust and doesn't throw.
+        // If it can throw, this what() becomes problematic.
+        msg_cache = runtime::to_code_string(thrown_object);
+        return msg_cache.c_str();
+      }
+      catch(...)
+      {
+        return "Jank Exception (error during what())";
+      }
+    }
+  };
 }
 
 namespace jank::error
