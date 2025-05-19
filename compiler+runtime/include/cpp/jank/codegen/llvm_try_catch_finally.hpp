@@ -30,7 +30,7 @@ namespace jank::codegen
                                   llvm::BasicBlock *normal_dest_if_invoke,
                                   llvm::BasicBlock *unwind_dest_if_invoke);
 
-    TryGenBlocks create_try_catch_finally_blocks(llvm_processor &proc_ctx,
+    TryGenBlocks create_try_catch_finally_blocks(llvm_processor const &proc_ctx,
                                                  analyze::expr::try_ref expr,
                                                  llvm::Function *current_llvm_fn);
 
@@ -75,7 +75,7 @@ namespace jank::codegen
    * using native LLVM exception handling.
    */
   llvm::Value *gen_native_try_catch_finally(llvm_processor &proc_ctx,
-                                            analyze::expr::try_ref expr,
-                                            analyze::expr::function_arity &caller_arity);
+                                            analyze::expr::try_ref const expr,
+                                            analyze::expr::function_arity const &caller_arity);
 
 } /* namespace jank::codegen */

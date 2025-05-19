@@ -1,3 +1,6 @@
+#include "jank/codegen/llvm_try_catch_finally.hpp"
+
+
 #include <llvm/IR/Verifier.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/TargetParser/Host.h>
@@ -327,7 +330,7 @@ namespace jank::codegen
     return var;
   }
 
-  static jtl::immutable_string arity_to_call_fn(usize const arity)
+  jtl::immutable_string llvm_processor::arity_to_call_fn(usize const arity)
   {
     /* Anything max_params + 1 or higher gets packed into a list so we
      * just end up calling max_params + 1 at most. */
@@ -945,36 +948,73 @@ namespace jank::codegen
 
   llvm::Value *llvm_processor::gen(expr::try_ref const expr, expr::function_arity const &arity)
   {
-    auto const wrapped_body(evaluate::wrap_expression(expr->body, "try_body", {}));
-    auto const wrapped_catch(expr->catch_body.map([](auto const &catch_body) {
-      return evaluate::wrap_expression(catch_body.body, "catch", { catch_body.sym });
-    }));
-    auto const wrapped_finally(expr->finally_body.map(
-      [](auto const &finally) { return evaluate::wrap_expression(finally, "finally", {}); }));
+    /* Temporarily set flags for the direct generation within the try expression.
+       The gen_native_try_catch_finally function itself will manage these flags
+       for *its* recursive calls to gen() for expressions *inside* the try/catch/finally bodies.
+    */
+    bool const previous_is_in_try_flag = m_is_in_try_block_for_invoke;
+    llvm::BasicBlock *previous_unwind_dest = m_current_unwind_dest;
 
-    auto const body(gen(wrapped_body, arity));
-    auto const catch_(
-      wrapped_catch.map([&](auto const &catch_body) { return gen(catch_body, arity); }));
-    auto const finally(
-      wrapped_finally.map([&](auto const &finally) { return gen(finally, arity); }));
+    /* These flags are for calls *made by* gen_native_try_catch_finally when it processes
+       the body of the try, catch, or finally blocks. They are not for the call to
+       gen_native_try_catch_finally itself. */
 
-    auto const fn_type(llvm::FunctionType::get(
-      ctx->builder->getPtrTy(),
-      { ctx->builder->getPtrTy(), ctx->builder->getPtrTy(), ctx->builder->getPtrTy() },
-      false));
-    auto const fn(ctx->module->getOrInsertFunction("jank_try", fn_type));
+    /* This should be set *inside* gen_try_block_body */
+    /* m_is_in_try_block_for_invoke = true; */
 
-    llvm::SmallVector<llvm::Value *, 3> const args{ body,
-                                                    catch_.unwrap_or(gen_global(jank_nil)),
-                                                    finally.unwrap_or(gen_global(jank_nil)) };
-    auto const call(ctx->builder->CreateCall(fn, args));
+    /* This is also set *inside* gen_try_block_body */
+    /* m_current_unwind_dest = ...; */
+
+    llvm::Value *result = gen_native_try_catch_finally(*this, expr, arity);
+
+    m_is_in_try_block_for_invoke = previous_is_in_try_flag;
+    m_current_unwind_dest = previous_unwind_dest;
 
     if(expr->position == expression_position::tail)
     {
-      return ctx->builder->CreateRet(call);
+      /* If gen_native_try_catch_finally handles all tail returns correctly, it might return nullptr.
+         If it returns a value, that value needs to be returned by the current LLVM function. */
+      if(result && ctx->builder->GetInsertBlock()->getTerminator() == nullptr)
+      {
+        ctx->builder->CreateRet(result);
+      }
+      return nullptr; /* Indicates return was handled or result is the final value for a phi in tail. */
     }
-    return call;
+    return result;
   }
+
+  // llvm::Value *llvm_processor::gen(expr::try_ref const expr, expr::function_arity const &arity)
+  // {
+  //   auto const wrapped_body(evaluate::wrap_expression(expr->body, "try_body", {}));
+  //   auto const wrapped_catch(expr->catch_body.map([](auto const &catch_body) {
+  //     return evaluate::wrap_expression(catch_body.body, "catch", { catch_body.sym });
+  //   }));
+  //   auto const wrapped_finally(expr->finally_body.map(
+  //     [](auto const &finally) { return evaluate::wrap_expression(finally, "finally", {}); }));
+  //
+  //   auto const body(gen(wrapped_body, arity));
+  //   auto const catch_(
+  //     wrapped_catch.map([&](auto const &catch_body) { return gen(catch_body, arity); }));
+  //   auto const finally(
+  //     wrapped_finally.map([&](auto const &finally) { return gen(finally, arity); }));
+  //
+  //   auto const fn_type(llvm::FunctionType::get(
+  //     ctx->builder->getPtrTy(),
+  //     { ctx->builder->getPtrTy(), ctx->builder->getPtrTy(), ctx->builder->getPtrTy() },
+  //     false));
+  //   auto const fn(ctx->module->getOrInsertFunction("jank_try", fn_type));
+  //
+  //   llvm::SmallVector<llvm::Value *, 3> const args{ body,
+  //                                                   catch_.unwrap_or(gen_global(jank_nil)),
+  //                                                   finally.unwrap_or(gen_global(jank_nil)) };
+  //   auto const call(ctx->builder->CreateCall(fn, args));
+  //
+  //   if(expr->position == expression_position::tail)
+  //   {
+  //     return ctx->builder->CreateRet(call);
+  //   }
+  //   return call;
+  // }
 
   llvm::Value *llvm_processor::gen(expr::case_ref const expr, expr::function_arity const &arity)
   {

@@ -20,9 +20,6 @@ namespace jank::codegen
 {
   namespace detail
   {
-
-    jtl::immutable_string arity_to_call_fn(size_t size);
-
     llvm::Value *
     gen_expr_potentially_throwing(llvm_processor &proc_ctx,
                                   analyze::expression_ref const an_expr,
@@ -33,16 +30,16 @@ namespace jank::codegen
       auto &builder = *proc_ctx.ctx->builder;
       auto &module = *proc_ctx.ctx->module;
 
-      bool is_call_like = (an_expr->kind == analyze::expression_kind::call
-                           || an_expr->kind == analyze::expression_kind::named_recursion);
-      bool is_explicit_throw = (an_expr->kind == analyze::expression_kind::throw_);
+      bool const is_call_like = (an_expr->kind == analyze::expression_kind::call
+                                 || an_expr->kind == analyze::expression_kind::named_recursion);
+      bool const is_explicit_throw = (an_expr->kind == analyze::expression_kind::throw_);
 
       if((is_call_like || is_explicit_throw) && proc_ctx.m_is_in_try_block_for_invoke
          && unwind_dest_if_invoke && normal_dest_if_invoke)
       {
         if(is_explicit_throw)
         {
-          auto throw_expr = jtl::static_ref_cast<analyze::expr::throw_>(an_expr);
+          auto const throw_expr = jtl::static_ref_cast<analyze::expr::throw_>(an_expr);
           llvm::Value *thrown_val = proc_ctx.gen(throw_expr->value, current_fn_arity);
 
           llvm::FunctionType *throw_fn_ty
@@ -70,7 +67,7 @@ namespace jank::codegen
         }
 
         /* Must be expr::call or similar */
-        auto call_expr = jtl::static_ref_cast<analyze::expr::call>(an_expr);
+        auto const call_expr = jtl::static_ref_cast<analyze::expr::call>(an_expr);
 
         llvm::Value *callee = proc_ctx.gen(call_expr->source_expr, current_fn_arity);
         llvm::SmallVector<llvm::Value *> arg_handles;
@@ -85,7 +82,8 @@ namespace jank::codegen
           arg_types.emplace_back(builder.getPtrTy());
         }
 
-        jtl::immutable_string call_fn_name = arity_to_call_fn(call_expr->arg_exprs.size());
+        jtl::immutable_string const call_fn_name
+          = llvm_processor::arity_to_call_fn(call_expr->arg_exprs.size());
         llvm::FunctionType *target_fn_type
           = llvm::FunctionType::get(builder.getPtrTy(), arg_types, false);
         llvm::FunctionCallee fn_callee
@@ -103,21 +101,23 @@ namespace jank::codegen
         builder.SetInsertPoint(normal_dest_if_invoke); /* Critical: continue on normal path */
         return invoke_inst;
       }
-      else
-      {
-        return proc_ctx.gen(an_expr, current_fn_arity);
-      }
+
+      return proc_ctx.gen(an_expr, current_fn_arity);
     }
 
-    TryGenBlocks create_try_catch_finally_blocks(llvm_processor &proc_ctx,
-                                                 analyze::expr::try_ref const expr,
-                                                 llvm::Function *current_llvm_fn)
+    TryGenBlocks create_try_catch_finally_blocks(
+      llvm_processor &proc_ctx,
+      analyze::expr::try_ref const expr,
+      llvm::Function *current_llvm_fn) /* current_llvm_fn is the parent */
     {
       TryGenBlocks blocks{};
+      /* Pass current_llvm_fn as the parent during creation */
       blocks.try_body_entry_bb
         = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx, "try.body.entry", current_llvm_fn);
-      blocks.try_continue_bb = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx,
-                                                        "try.cont"); /* Not added to function yet */
+
+      /* Create try_continue_bb also with the parent. If it becomes unused, DCE will remove it. */
+      blocks.try_continue_bb
+        = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx, "try.cont", current_llvm_fn);
 
       bool needs_landing_pad = expr->catch_body.is_some() || expr->finally_body.is_some();
       if(needs_landing_pad)
@@ -147,7 +147,7 @@ namespace jank::codegen
     gen_try_block_body(llvm_processor &proc_ctx,
                        analyze::expr::try_ref const expr,
                        analyze::expr::function_arity const &caller_arity,
-                       TryGenBlocks &blocks)
+                       TryGenBlocks const &blocks)
     {
       llvm::Function *current_llvm_fn = proc_ctx.ctx->builder->GetInsertBlock()->getParent();
       auto &builder = *proc_ctx.ctx->builder;
@@ -222,7 +222,7 @@ namespace jank::codegen
     gen_landing_pad_and_catch_block(llvm_processor &proc_ctx,
                                     analyze::expr::try_ref const expr,
                                     analyze::expr::function_arity const &caller_arity,
-                                    TryGenBlocks &blocks,
+                                    TryGenBlocks const &blocks,
                                     llvm::LandingPadInst **out_landing_pad_inst)
     {
       if(!blocks.landing_pad_bb)
@@ -242,7 +242,7 @@ namespace jank::codegen
       lp->setCleanup(expr->finally_body.is_some());
 
       /* Get TypeInfo for jank::jank_exception as a global constant */
-      std::string typeinfo_name = "_ZTIn4jank14jank_exceptionE"; /* Itanium ABI */
+      std::string const typeinfo_name = "_ZTIn4jank14jank_exceptionE"; /* Itanium ABI */
       llvm::Type *typeinfo_struct_type
         = llvm::StructType::getTypeByName(*proc_ctx.ctx->llvm_ctx, "class.std::type_info");
       if(!typeinfo_struct_type)
@@ -451,76 +451,48 @@ namespace jank::codegen
                                         llvm::BasicBlock *catch_body_final_bb_before_finally)
     {
       auto &builder = *proc_ctx.ctx->builder;
-      llvm::Function *current_llvm_fn = builder.GetInsertBlock()->getParent();
+      /* llvm::Function *current_llvm_fn = builder.GetInsertBlock()->getParent(); // Not needed if blocks already parented */
 
-      bool is_try_continue_reachable = false;
-      if(blocks.finally_code_bb)
+      if(!blocks.try_continue_bb)
       {
-        /* If finally exists, try_continue_bb is reached from finally's normal exit path */
-        for(llvm::User *U : blocks.finally_code_bb->users())
-        {
-          if(auto *term = llvm::dyn_cast<llvm::TerminatorInst>(U))
-          {
-            for(unsigned i = 0; i < term->getNumSuccessors(); ++i)
-            {
-              if(term->getSuccessor(i) == blocks.try_continue_bb)
-              {
-                is_try_continue_reachable = true;
-                break;
-              }
-            }
-          }
-          if(is_try_continue_reachable)
-          {
-            break;
-          }
-        }
-      }
-      else
-      {
-        /* If no finally, try_continue_bb is reached from try's normal exit or catch's normal exit */
-        if(try_body_final_bb_before_finally && try_body_final_bb_before_finally->getTerminator()
-           && try_body_final_bb_before_finally->getTerminator()->getSuccessor(0)
-             == blocks.try_continue_bb)
-        {
-          is_try_continue_reachable = true;
-        }
-        if(!is_try_continue_reachable && catch_body_final_bb_before_finally
-           && catch_body_final_bb_before_finally->getTerminator()
-           && catch_body_final_bb_before_finally->getTerminator()->getSuccessor(0)
-             == blocks.try_continue_bb)
-        {
-          is_try_continue_reachable = true;
-        }
+        return nullptr; /* Was deleted */
       }
 
-      if(!is_try_continue_reachable && expr->position == analyze::expression_position::tail)
+      /*
+     * By creating blocks with current_llvm_fn as parent, they are already part of the function.
+     * We just need to ensure this block is actually reachable and correctly wired.
+     * If it has no predecessors after all CFG construction, it might be dead code.
+     * LLVM's verifyFunction or DCE will handle truly orphaned blocks.
+     */
+
+      /* Only proceed if try_continue_bb actually has predecessors.
+       If not, it means all paths either returned or rethrew before reaching a point
+       that would branch here. */
+      if(blocks.try_continue_bb->hasNPredecessors(0) &&
+         /* Exception: if it's the ONLY block (e.g. empty try/catch/finally in non-tail pos) */
+         (!expr->body->values.empty() || expr->catch_body.is_some() || expr->finally_body.is_some()
+          || expr->position == analyze::expression_position::tail))
       {
-        /* If it's tail position and the continue block isn't reachable, it means all paths
-           must have returned or rethrown. We might not need to add it.
-           However, if no blocks were generated before this, current_llvm_fn might be empty. */
-        if(current_llvm_fn->empty())
+        /* This block is effectively dead or wasn't wired up.
+           If it has no uses and no predecessors, it can be removed.
+           For simplicity, let's assume if no predecessors, we don't generate code for it.
+           It will be an empty block that DCE might remove.
+           Returning nullptr signals that this path doesn't produce a value normally. */
+        if(!blocks.try_continue_bb->use_empty())
         {
-          current_llvm_fn->getBasicBlockList().push_back(blocks.try_continue_bb);
+          /* It has uses (e.g., a PHI node was already planned to use it).
+               This case indicates a potential CFG issue if it has uses but no predecessors.
+               For now, fall through to PHI generation, which might result in an undef PHI. */
         }
-        else if(blocks.try_continue_bb->use_empty() && blocks.try_continue_bb->hasNPredecessors(0))
+        else
         {
-          /* Block is truly dead, can be deleted or let DCE handle it */
-          blocks.try_continue_bb->deleteValue(); /* Risky if not careful */
-          blocks.try_continue_bb = nullptr;
+          blocks.try_continue_bb
+            ->eraseFromParent(); /* Safely remove if no uses and no predecessors */
+          blocks.try_continue_bb = nullptr; /* Mark as gone */
           return nullptr;
         }
       }
 
-
-      if(blocks.try_continue_bb && !blocks.try_continue_bb->getParent())
-      {
-        current_llvm_fn->getBasicBlockList().push_back(blocks.try_continue_bb);
-      }
-      if(!blocks.try_continue_bb)
-      {
-        return nullptr; /* Was deleted or deemed unnecessary */
-      }
 
       builder.SetInsertPoint(blocks.try_continue_bb);
 
@@ -530,34 +502,31 @@ namespace jank::codegen
         {
           llvm::PHINode *phi = builder.CreatePHI(builder.getPtrTy(), 0, "try.tail.phi.res");
 
-          llvm::BasicBlock *actual_pred_from_try
+          llvm::BasicBlock *pred_from_try_path
             = blocks.finally_code_bb ? blocks.finally_code_bb : try_body_final_bb_before_finally;
-          if(actual_pred_from_try && actual_pred_from_try->getTerminator()
-             && actual_pred_from_try->getTerminator()->isTerminator()
-             && /* Check it's a valid terminator */
-             std::find(llvm::pred_begin(blocks.try_continue_bb),
-                       llvm::pred_end(blocks.try_continue_bb),
-                       actual_pred_from_try)
+          if(pred_from_try_path && pred_from_try_path->getTerminator()
+             && std::find(llvm::pred_begin(blocks.try_continue_bb),
+                          llvm::pred_end(blocks.try_continue_bb),
+                          pred_from_try_path)
                != llvm::pred_end(blocks.try_continue_bb))
           {
             phi->addIncoming(try_body_result_val ? try_body_result_val
                                                  : proc_ctx.gen_global(runtime::jank_nil),
-                             actual_pred_from_try);
+                             pred_from_try_path);
           }
 
-          llvm::BasicBlock *actual_pred_from_catch
+          llvm::BasicBlock *pred_from_catch_path
             = blocks.finally_code_bb ? blocks.finally_code_bb : catch_body_final_bb_before_finally;
-          if(expr->catch_body.is_some() && actual_pred_from_catch
-             && actual_pred_from_catch->getTerminator()
-             && actual_pred_from_catch->getTerminator()->isTerminator()
+          if(expr->catch_body.is_some() && pred_from_catch_path
+             && pred_from_catch_path->getTerminator()
              && std::find(llvm::pred_begin(blocks.try_continue_bb),
                           llvm::pred_end(blocks.try_continue_bb),
-                          actual_pred_from_catch)
+                          pred_from_catch_path)
                != llvm::pred_end(blocks.try_continue_bb))
           {
             phi->addIncoming(catch_body_result_val ? catch_body_result_val
                                                    : proc_ctx.gen_global(runtime::jank_nil),
-                             actual_pred_from_catch);
+                             pred_from_catch_path);
           }
 
           if(phi->getNumIncomingValues() > 0)
@@ -572,44 +541,47 @@ namespace jank::codegen
         return nullptr;
       }
       else
-      {
+      { /* Not tail position */
         llvm::PHINode *phi = builder.CreatePHI(builder.getPtrTy(), 0, "try.expr.phi.res");
-        llvm::BasicBlock *actual_pred_from_try
+        llvm::BasicBlock *pred_from_try_path
           = blocks.finally_code_bb ? blocks.finally_code_bb : try_body_final_bb_before_finally;
-        if(actual_pred_from_try && actual_pred_from_try->getTerminator()
-           && actual_pred_from_try->getTerminator()->isTerminator()
+        if(pred_from_try_path && pred_from_try_path->getTerminator()
            && std::find(llvm::pred_begin(blocks.try_continue_bb),
                         llvm::pred_end(blocks.try_continue_bb),
-                        actual_pred_from_try)
+                        pred_from_try_path)
              != llvm::pred_end(blocks.try_continue_bb))
         {
           phi->addIncoming(try_body_result_val ? try_body_result_val
                                                : proc_ctx.gen_global(runtime::jank_nil),
-                           actual_pred_from_try);
+                           pred_from_try_path);
         }
 
-        llvm::BasicBlock *actual_pred_from_catch
+        llvm::BasicBlock *pred_from_catch_path
           = blocks.finally_code_bb ? blocks.finally_code_bb : catch_body_final_bb_before_finally;
-        if(expr->catch_body.is_some() && actual_pred_from_catch
-           && actual_pred_from_catch->getTerminator()
-           && actual_pred_from_catch->getTerminator()->isTerminator()
+        if(expr->catch_body.is_some() && pred_from_catch_path
+           && pred_from_catch_path->getTerminator()
            && std::find(llvm::pred_begin(blocks.try_continue_bb),
                         llvm::pred_end(blocks.try_continue_bb),
-                        actual_pred_from_catch)
+                        pred_from_catch_path)
              != llvm::pred_end(blocks.try_continue_bb))
         {
           phi->addIncoming(catch_body_result_val ? catch_body_result_val
                                                  : proc_ctx.gen_global(runtime::jank_nil),
-                           actual_pred_from_catch);
+                           pred_from_catch_path);
         }
 
         if(phi->getNumIncomingValues() == 0)
         {
           if(builder.GetInsertBlock()->getTerminator() == nullptr)
           {
+            /* If the block is reachable but PHI is empty, means all paths must have returned/rethrown.
+                    This indicates a potential dead code path or CFG issue if this point is meant to be reached.
+                    For safety, provide a default value. */
+            builder.CreateStore(proc_ctx.gen_global(runtime::jank_nil),
+                                phi); /* Store default if phi is used later */
             return proc_ctx.gen_global(runtime::jank_nil);
           }
-          return nullptr; /* Block should be dead or already terminated */
+          return nullptr;
         }
         return phi;
       }
@@ -659,7 +631,7 @@ namespace jank::codegen
     llvm::BasicBlock *landingpad_exit_to_finally = nullptr;
     if(blocks.landing_pad_bb && blocks.landing_pad_bb->getTerminator())
     {
-      llvm::TerminatorInst *term = blocks.landing_pad_bb->getTerminator();
+      auto const *term = blocks.landing_pad_bb->getTerminator();
       if(term->getNumSuccessors() > 0 && term->getSuccessor(0) == blocks.finally_code_bb)
       {
         /* This means landingpad directly branched to finally (e.g., no catch clause or catch didn't handle and branched to finally) */

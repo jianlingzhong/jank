@@ -169,7 +169,7 @@ namespace jank::codegen
 
     llvm::StructType *get_or_insert_struct_type(std::string const &name,
                                                 std::vector<llvm::Type *> const &fields) const;
-
+    static jtl::immutable_string arity_to_call_fn(usize const arity);
     compilation_target target{};
     analyze::expr::function_ref root_fn;
     jtl::ptr<llvm::Function> fn{};
