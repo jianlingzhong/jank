@@ -186,6 +186,27 @@ namespace jank::codegen
   jtl::string_result<void> llvm_processor::gen()
   {
     profile::timer const timer{ "ir gen" };
+    /* This is where the decision about needing a personality function for THIS specific LLVM function
+   needs to be made. If *any* 'try' expression that uses native EH will be generated
+   INSIDE this root_fn, then this root_fn needs a personality function. */
+    bool this_llvm_function_will_contain_native_eh = true;
+    /*
+     * TODO: Determine if 'this->root_fn' (the expr::function_ref passed to llvm_processor)
+     * contains any expr::try_ that will use the new native EH path.
+     * This might involve a quick pre-scan of the AST for this->root_fn.
+     * For now, let's assume if we are using the new try/catch, it might happen.
+     * A simpler, albeit broader, approach is to add it if *any* try is present,
+     * or even always add it if C++ exceptions can generally propagate from JITted code.
+     * For this specific example, we know the try/catch *is* the content.
+     */
+    // For the example (try (throw :success) (catch e e)), if this 'gen()' is for the
+    // function wrapping that 'try', then this_llvm_function_will_contain_native_eh would be true.
+    // You need a robust way to determine this. For now, a placeholder:
+    // if(expr_contains_native_try(this->root_fn))
+    // { // You'd need to implement expr_contains_native_try
+    //   this_llvm_function_will_contain_native_eh = true;
+    // }
+
     if(target != compilation_target::function)
     {
       create_global_ctor();
@@ -195,6 +216,32 @@ namespace jank::codegen
     {
       /* TODO: Add profiling to the fn body? Need to exit on every return. */
       create_function(arity);
+
+      /* ***** ADD PERSONALITY FUNCTION HERE, AFTER this->fn IS VALID ***** */
+      if(this_llvm_function_will_contain_native_eh && this->fn)
+      {
+        llvm::FunctionType *personality_ty
+          = llvm::FunctionType::get(ctx->builder->getInt32Ty(), /*isVarArg=*/true);
+        llvm::FunctionCallee personality_callee
+          = ctx->module->getOrInsertFunction("__gxx_personality_v0", personality_ty);
+
+        if(llvm::Function *pfn = llvm::dyn_cast<llvm::Function>(personality_callee.getCallee()))
+        {
+          if(pfn->empty())
+          { /* If it's just a declaration */
+            pfn->setLinkage(llvm::GlobalValue::ExternalLinkage);
+          }
+          this->fn->setPersonalityFn(pfn);
+        }
+        else
+        {
+          llvm::errs() << "CRITICAL ERROR: Could not get __gxx_personality_v0 as a function for "
+                       << this->fn->getName() << "\n";
+          /* This is a fatal error for native C++ EH */
+          return jtl::err("Failed to set personality function");
+        }
+      }
+
       for(auto const form : arity.body->values)
       {
         gen(form, arity);
