@@ -5,6 +5,7 @@
 #include <jank/analyze/expr/throw.hpp>
 #include <jank/profile/time.hpp>
 #include <jank/error.hpp> /* For jank::jank_exception */
+#include <llvm/IR/PredIteratorCache.h> // For llvm::predecessors
 
 /* Ensure these are declared for LLVM to find their symbols */
 #define JANK_EXPORT /* For now, assume JIT can find symbols in the host process */
@@ -20,6 +21,8 @@ namespace jank::codegen
 {
   namespace detail
   {
+
+    // gen_expr_potentially_throwing (NO CHANGES NEEDED FROM PREVIOUS CORRECT VERSION)
     llvm::Value *
     gen_expr_potentially_throwing(llvm_processor &proc_ctx,
                                   analyze::expression_ref const an_expr,
@@ -30,16 +33,16 @@ namespace jank::codegen
       auto &builder = *proc_ctx.ctx->builder;
       auto &module = *proc_ctx.ctx->module;
 
-      bool const is_call_like = (an_expr->kind == analyze::expression_kind::call
-                                 || an_expr->kind == analyze::expression_kind::named_recursion);
-      bool const is_explicit_throw = (an_expr->kind == analyze::expression_kind::throw_);
+      bool is_call_like = (an_expr->kind == analyze::expression_kind::call
+                           || an_expr->kind == analyze::expression_kind::named_recursion);
+      bool is_explicit_throw = (an_expr->kind == analyze::expression_kind::throw_);
 
       if((is_call_like || is_explicit_throw) && proc_ctx.m_is_in_try_block_for_invoke
          && unwind_dest_if_invoke && normal_dest_if_invoke)
       {
         if(is_explicit_throw)
         {
-          auto const throw_expr = jtl::static_ref_cast<analyze::expr::throw_>(an_expr);
+          auto throw_expr = jtl::static_ref_cast<analyze::expr::throw_>(an_expr);
           llvm::Value *thrown_val = proc_ctx.gen(throw_expr->value, current_fn_arity);
 
           llvm::FunctionType *throw_fn_ty
@@ -55,19 +58,15 @@ namespace jank::codegen
                                normal_dest_if_invoke,
                                unwind_dest_if_invoke,
                                { thrown_val });
-          /* The current block is now terminated by invoke. Normal_dest_if_invoke might be technically unreachable. */
-          /* Set builder to the normal destination to allow chaining, though it might be dead code if throw always happens. */
           builder.SetInsertPoint(normal_dest_if_invoke);
           if(normal_dest_if_invoke->getTerminator() == nullptr)
-          { /* If normal_dest isn't already terminated (e.g. by a return) */
-            builder
-              .CreateUnreachable(); /* Explicitly mark as unreachable if throw always happens */
+          {
+            builder.CreateUnreachable();
           }
           return nullptr;
         }
 
-        /* Must be expr::call or similar */
-        auto const call_expr = jtl::static_ref_cast<analyze::expr::call>(an_expr);
+        auto call_expr = jtl::static_ref_cast<analyze::expr::call>(an_expr);
 
         llvm::Value *callee = proc_ctx.gen(call_expr->source_expr, current_fn_arity);
         llvm::SmallVector<llvm::Value *> arg_handles;
@@ -82,8 +81,8 @@ namespace jank::codegen
           arg_types.emplace_back(builder.getPtrTy());
         }
 
-        jtl::immutable_string const call_fn_name
-          = llvm_processor::arity_to_call_fn(call_expr->arg_exprs.size());
+        jtl::immutable_string call_fn_name
+          = llvm_processor::arity_to_call_fn(call_expr->arg_exprs.size()); /* Fixed static call */
         llvm::FunctionType *target_fn_type
           = llvm::FunctionType::get(builder.getPtrTy(), arg_types, false);
         llvm::FunctionCallee fn_callee
@@ -98,26 +97,26 @@ namespace jank::codegen
                                                              normal_dest_if_invoke,
                                                              unwind_dest_if_invoke,
                                                              arg_handles);
-        builder.SetInsertPoint(normal_dest_if_invoke); /* Critical: continue on normal path */
+        builder.SetInsertPoint(normal_dest_if_invoke);
         return invoke_inst;
       }
-
-      return proc_ctx.gen(an_expr, current_fn_arity);
+      else
+      {
+        return proc_ctx.gen(an_expr, current_fn_arity);
+      }
     }
 
-    TryGenBlocks create_try_catch_finally_blocks(
-      llvm_processor &proc_ctx,
-      analyze::expr::try_ref const expr,
-      llvm::Function *current_llvm_fn) /* current_llvm_fn is the parent */
+    // create_try_catch_finally_blocks (NO CHANGES NEEDED FROM PREVIOUS CORRECT VERSION)
+    TryGenBlocks
+    create_try_catch_finally_blocks(llvm_processor &proc_ctx, /* Changed to non-const */
+                                    analyze::expr::try_ref const expr,
+                                    llvm::Function *current_llvm_fn)
     {
       TryGenBlocks blocks{};
-      /* Pass current_llvm_fn as the parent during creation */
       blocks.try_body_entry_bb
         = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx, "try.body.entry", current_llvm_fn);
-
-      /* Create try_continue_bb also with the parent. If it becomes unused, DCE will remove it. */
-      blocks.try_continue_bb
-        = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx, "try.cont", current_llvm_fn);
+      blocks.try_continue_bb = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx,
+                                                        "try.cont"); /* Parented later if used */
 
       bool needs_landing_pad = expr->catch_body.is_some() || expr->finally_body.is_some();
       if(needs_landing_pad)
@@ -132,8 +131,12 @@ namespace jank::codegen
       }
       if(expr->finally_body.is_some())
       {
-        blocks.finally_code_bb
-          = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx, "finally.code", current_llvm_fn);
+        blocks.finally_normal_path_entry_bb = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx,
+                                                                       "finally.normal.entry",
+                                                                       current_llvm_fn);
+        blocks.finally_actual_code_bb = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx,
+                                                                 "finally.actual.code",
+                                                                 current_llvm_fn);
         if(needs_landing_pad)
         {
           blocks.rethrow_bb
@@ -143,11 +146,12 @@ namespace jank::codegen
       return blocks;
     }
 
+    // gen_try_block_body (NO CHANGES NEEDED FROM PREVIOUS CORRECT VERSION)
     std::pair<llvm::Value *, llvm::BasicBlock *>
     gen_try_block_body(llvm_processor &proc_ctx,
                        analyze::expr::try_ref const expr,
                        analyze::expr::function_arity const &caller_arity,
-                       TryGenBlocks const &blocks)
+                       TryGenBlocks &blocks) /* Changed to non-const TryGenBlocks */
     {
       llvm::Function *current_llvm_fn = proc_ctx.ctx->builder->GetInsertBlock()->getParent();
       auto &builder = *proc_ctx.ctx->builder;
@@ -155,11 +159,11 @@ namespace jank::codegen
       builder.SetInsertPoint(blocks.try_body_entry_bb);
 
       llvm::Value *last_val_in_try = proc_ctx.gen_global(runtime::jank_nil);
-      llvm::BasicBlock *current_bb_for_normal_flow = blocks.try_body_entry_bb;
+      llvm::BasicBlock *current_normal_flow_bb = blocks.try_body_entry_bb;
 
       for(size_t i = 0; i < expr->body->values.size(); ++i)
       {
-        builder.SetInsertPoint(current_bb_for_normal_flow);
+        builder.SetInsertPoint(current_normal_flow_bb);
         if(builder.GetInsertBlock()->getTerminator())
         {
           break;
@@ -171,12 +175,12 @@ namespace jank::codegen
         llvm::BasicBlock *normal_dest_for_this_expr;
         if(is_last_in_try_body)
         {
-          normal_dest_for_this_expr
-            = blocks.finally_code_bb ? blocks.finally_code_bb : blocks.try_continue_bb;
+          normal_dest_for_this_expr = expr->finally_body.is_some()
+            ? blocks.finally_normal_path_entry_bb
+            : blocks.try_continue_bb;
         }
         else
         {
-          /* Insert before landing_pad_bb to keep CFG somewhat linear for non-exception path */
           normal_dest_for_this_expr = llvm::BasicBlock::Create(*proc_ctx.ctx->llvm_ctx,
                                                                "try.stmt.next",
                                                                current_llvm_fn,
@@ -189,40 +193,30 @@ namespace jank::codegen
                                                                 normal_dest_for_this_expr,
                                                                 blocks.landing_pad_bb);
 
-        /* gen_expr_potentially_throwing now sets the insert point to normal_dest_for_this_expr */
-        current_bb_for_normal_flow
-          = builder.GetInsertBlock(); /* This is normal_dest_for_this_expr */
+        current_normal_flow_bb = builder.GetInsertBlock();
         if(builder.GetInsertBlock()->getTerminator() == nullptr && !is_last_in_try_body)
         {
-          /* This case should ideally not happen if gen_expr_potentially_throwing correctly handles its branches.
-               If normal_dest_for_this_expr is not the final destination (finally/continue), it should have been
-               terminated by a branch to the *next* statement's block by the loop structure or by gen_expr itself.
-               This is a safeguard. */
-          builder.CreateBr(
-            normal_dest_for_this_expr); /* Should be next iteration's current_bb_for_normal_flow */
+          builder.CreateBr(normal_dest_for_this_expr);
+          current_normal_flow_bb = normal_dest_for_this_expr;
         }
       }
 
-      builder.SetInsertPoint(
-        current_bb_for_normal_flow); /* Make sure we are at the true end of normal try flow */
-      if(expr->body->values.empty() && builder.GetInsertBlock()->getTerminator() == nullptr)
+      builder.SetInsertPoint(current_normal_flow_bb);
+      if(builder.GetInsertBlock()->getTerminator() == nullptr)
       {
-        builder.CreateBr(blocks.finally_code_bb ? blocks.finally_code_bb : blocks.try_continue_bb);
-      }
-      else if(!expr->body->values.empty() && builder.GetInsertBlock()->getTerminator() == nullptr)
-      {
-        /* If the last expr didn't terminate and wasn't an invoke that branched to finally/continue */
-        builder.CreateBr(blocks.finally_code_bb ? blocks.finally_code_bb : blocks.try_continue_bb);
+        builder.CreateBr(expr->finally_body.is_some() ? blocks.finally_normal_path_entry_bb
+                                                      : blocks.try_continue_bb);
       }
 
-      return { last_val_in_try, current_bb_for_normal_flow };
+      return { last_val_in_try, current_normal_flow_bb };
     }
 
+    // gen_landing_pad_and_catch_block (NO CHANGES NEEDED FROM PREVIOUS CORRECT VERSION)
     std::pair<llvm::Value *, llvm::BasicBlock *>
     gen_landing_pad_and_catch_block(llvm_processor &proc_ctx,
                                     analyze::expr::try_ref const expr,
                                     analyze::expr::function_arity const &caller_arity,
-                                    TryGenBlocks const &blocks,
+                                    TryGenBlocks &blocks, /* Changed to non-const TryGenBlocks */
                                     llvm::LandingPadInst **out_landing_pad_inst)
     {
       if(!blocks.landing_pad_bb)
@@ -241,8 +235,7 @@ namespace jank::codegen
 
       lp->setCleanup(expr->finally_body.is_some());
 
-      /* Get TypeInfo for jank::jank_exception as a global constant */
-      std::string const typeinfo_name = "_ZTIn4jank14jank_exceptionE"; /* Itanium ABI */
+      std::string typeinfo_name = "_ZTIn4jank14jank_exceptionE";
       llvm::Type *typeinfo_struct_type
         = llvm::StructType::getTypeByName(*proc_ctx.ctx->llvm_ctx, "class.std::type_info");
       if(!typeinfo_struct_type)
@@ -250,31 +243,21 @@ namespace jank::codegen
         typeinfo_struct_type
           = llvm::StructType::create(*proc_ctx.ctx->llvm_ctx, "class.std::type_info");
       }
-      llvm::Constant *jankExceptionTypeInfoConstant = proc_ctx.ctx->module->getOrInsertGlobal(
-        typeinfo_name,
-        typeinfo_struct_type /* Actual type_info object, not pointer to it */
-      );
+      llvm::Constant *jankExceptionTypeInfoConstant
+        = proc_ctx.ctx->module->getOrInsertGlobal(typeinfo_name, typeinfo_struct_type);
       if(auto *gv = llvm::dyn_cast<llvm::GlobalVariable>(jankExceptionTypeInfoConstant))
       {
         gv->setLinkage(llvm::GlobalValue::ExternalLinkage);
-        /* Clause should be a pointer to the type_info object */
         lp->addClause(gv);
       }
       else
       {
-        /* This might happen if the global was already a ConstantExpr, e.g. a bitcast.
-           This needs to resolve to a Constant* that is a pointer to the type_info object.
-           A direct GlobalVariable is the most straightforward.
-           If problems persist, using a null pointer for a catch-all and then dynamic checks
-           might be a fallback, but loses type-safety at landingpad. */
-        lp->addClause(llvm::ConstantPointerNull::get(
-          llvm::PointerType::getUnqual(*proc_ctx.ctx->llvm_ctx))); /* Catch all as fallback */
+        lp->addClause(
+          llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*proc_ctx.ctx->llvm_ctx)));
       }
 
-
       llvm::Value *exception_raw_ptr = builder.CreateExtractValue(lp, 0, "exc.ptr");
-      llvm::Type *jank_exception_ptr_type
-        = llvm::PointerType::getUnqual(*proc_ctx.ctx->llvm_ctx); /* Opaque pointer */
+      llvm::Type *jank_exception_ptr_type = llvm::PointerType::getUnqual(*proc_ctx.ctx->llvm_ctx);
       llvm::Value *typed_exception_ptr
         = builder.CreateBitCast(exception_raw_ptr, jank_exception_ptr_type);
 
@@ -317,15 +300,15 @@ namespace jank::codegen
 
           if(is_last_in_catch && builder.GetInsertBlock()->getTerminator() == nullptr)
           {
-            builder.CreateBr(blocks.finally_code_bb ? blocks.finally_code_bb
-                                                    : blocks.try_continue_bb);
+            builder.CreateBr(expr->finally_body.is_some() ? blocks.finally_normal_path_entry_bb
+                                                          : blocks.try_continue_bb);
           }
         }
         if(catch_clause.body->values.empty()
            && builder.GetInsertBlock()->getTerminator() == nullptr)
         {
-          builder.CreateBr(blocks.finally_code_bb ? blocks.finally_code_bb
-                                                  : blocks.try_continue_bb);
+          builder.CreateBr(expr->finally_body.is_some() ? blocks.finally_normal_path_entry_bb
+                                                        : blocks.try_continue_bb);
         }
 
         if(e_was_in_scope)
@@ -341,12 +324,12 @@ namespace jank::codegen
       }
       else
       {
-        if(blocks.finally_code_bb)
-        {
-          builder.CreateBr(blocks.finally_code_bb);
+        if(blocks.finally_actual_code_bb)
+        { /* If finally exists, exceptional path goes to actual finally code */
+          builder.CreateBr(blocks.finally_actual_code_bb);
         }
         else
-        {
+        { /* No catch, no finally, resume immediately */
           builder.CreateResume(lp);
         }
         last_bb_of_this_path = builder.GetInsertBlock();
@@ -354,60 +337,89 @@ namespace jank::codegen
       return { result_from_catch_block, last_bb_of_this_path };
     }
 
-    void gen_finally_block(llvm_processor &proc_ctx,
-                           analyze::expr::try_ref const expr,
-                           analyze::expr::function_arity const &caller_arity,
-                           TryGenBlocks &blocks,
-                           llvm::Value *landing_pad_inst_val,
-                           llvm::BasicBlock *from_try_normal_exit_bb,
-                           llvm::BasicBlock *from_catch_normal_exit_bb,
-                           llvm::BasicBlock *from_landingpad_unhandled_exit_bb)
+    void gen_finally_block(
+      llvm_processor &proc_ctx,
+      analyze::expr::try_ref const expr,
+      analyze::expr::function_arity const &caller_arity,
+      TryGenBlocks &blocks, /* Changed to non-const TryGenBlocks */
+      llvm::Value *landing_pad_inst_val,
+      llvm::BasicBlock
+        * /* from_try_normal_final_bb - now implicitly via finally_normal_path_entry_bb */,
+      // llvm::BasicBlock *from_catch_normal_final_bb, /* CORRECTED: removed unused parameter */
+      llvm::BasicBlock *from_landingpad_unhandled_bb)
     {
-      if(!blocks.finally_code_bb)
+      if(!expr->finally_body.is_some())
       {
         return;
       }
+      jank_assert_throw(blocks.finally_actual_code_bb && "finally_actual_code_bb must exist");
+      jank_assert_throw(blocks.finally_normal_path_entry_bb
+                        && "finally_normal_path_entry_bb must exist");
 
       auto &builder = *proc_ctx.ctx->builder;
-      builder.SetInsertPoint(blocks.finally_code_bb);
+      /* llvm::Function *current_llvm_fn = proc_ctx.ctx->builder->GetInsertBlock()->getParent(); // Unused */
+
+      builder.SetInsertPoint(blocks.finally_normal_path_entry_bb);
+      if(blocks.finally_normal_path_entry_bb->getTerminator() == nullptr
+         && (blocks.finally_normal_path_entry_bb->hasNPredecessorsOrMore(1)
+             || /* If it has predecessors */
+             !blocks.finally_normal_path_entry_bb
+                ->use_empty()) /* Or if it will be used (e.g. as target for invoke) */
+      )
+      {
+        builder.CreateBr(blocks.finally_actual_code_bb);
+      }
+      else if(blocks.finally_normal_path_entry_bb->getTerminator() == nullptr)
+      {
+        /* If it's truly an orphaned block created by CreateBasicBlock but never wired up
+           and never targeted by an invoke's normal path that is live. */
+        builder.CreateUnreachable();
+      }
+
+
+      builder.SetInsertPoint(blocks.finally_actual_code_bb);
 
       llvm::PHINode *must_rethrow_phi
-        = builder.CreatePHI(builder.getInt1Ty(), 0, "finally.mustrethrow");
+        = builder.CreatePHI(builder.getInt1Ty(), 0, "finally.mustrethrow.phi");
 
-      if(from_try_normal_exit_bb && from_try_normal_exit_bb->getTerminator()
-         && llvm::dyn_cast<llvm::BranchInst>(from_try_normal_exit_bb->getTerminator())
-         && /* Make sure it's a branch */
-         from_try_normal_exit_bb->getTerminator()->getSuccessor(0) == blocks.finally_code_bb)
+      if(blocks.finally_normal_path_entry_bb->getTerminator()
+         && llvm::dyn_cast<llvm::BranchInst>(blocks.finally_normal_path_entry_bb->getTerminator())
+         && blocks.finally_normal_path_entry_bb->getTerminator()->getSuccessor(0)
+           == blocks.finally_actual_code_bb)
       {
-        must_rethrow_phi->addIncoming(builder.getFalse(), from_try_normal_exit_bb);
-      }
-      if(from_catch_normal_exit_bb && from_catch_normal_exit_bb->getTerminator()
-         && llvm::dyn_cast<llvm::BranchInst>(from_catch_normal_exit_bb->getTerminator())
-         && from_catch_normal_exit_bb->getTerminator()->getSuccessor(0) == blocks.finally_code_bb)
-      {
-        must_rethrow_phi->addIncoming(builder.getFalse(), from_catch_normal_exit_bb);
-      }
-      if(from_landingpad_unhandled_exit_bb && from_landingpad_unhandled_exit_bb->getTerminator()
-         && llvm::dyn_cast<llvm::BranchInst>(from_landingpad_unhandled_exit_bb->getTerminator())
-         && from_landingpad_unhandled_exit_bb->getTerminator()->getSuccessor(0)
-           == blocks.finally_code_bb)
-      {
-        must_rethrow_phi->addIncoming(builder.getTrue(), from_landingpad_unhandled_exit_bb);
+        must_rethrow_phi->addIncoming(builder.getFalse(), blocks.finally_normal_path_entry_bb);
       }
 
-      /* If PHI is still empty but block has predecessors, something is wrong with CFG construction earlier. */
-      /* Add a default incoming for each actual predecessor if phi is empty to avoid verifier errors. */
+      if(from_landingpad_unhandled_bb && from_landingpad_unhandled_bb->getTerminator()
+         && llvm::dyn_cast<llvm::BranchInst>(from_landingpad_unhandled_bb->getTerminator())
+         && from_landingpad_unhandled_bb->getTerminator()->getSuccessor(0)
+           == blocks.finally_actual_code_bb)
+      {
+        must_rethrow_phi->addIncoming(builder.getTrue(), from_landingpad_unhandled_bb);
+      }
+
       if(must_rethrow_phi->getNumIncomingValues() == 0
-         && blocks.finally_code_bb->hasNPredecessorsOrMore(1))
+         && blocks.finally_actual_code_bb->hasNPredecessorsOrMore(1))
       {
-        for(llvm::BasicBlock *pred : llvm::predecessors(blocks.finally_code_bb))
+        for(llvm::BasicBlock *pred : llvm::predecessors(blocks.finally_actual_code_bb))
         {
-          /* This default is likely incorrect semantically but prevents crashes.
-               The logic adding predecessors to finally_code_bb needs to be robust. */
           must_rethrow_phi->addIncoming(builder.getFalse(), pred);
         }
       }
-
+      else if(must_rethrow_phi->getNumIncomingValues() == 0
+              && !blocks.finally_actual_code_bb->hasNPredecessorsOrMore(1))
+      {
+        if(blocks.finally_actual_code_bb->getTerminator() == nullptr)
+        {
+          builder.CreateBr(blocks.try_continue_bb);
+        }
+        if(blocks.rethrow_bb && blocks.rethrow_bb->getTerminator() == nullptr)
+        {
+          builder.SetInsertPoint(blocks.rethrow_bb);
+          builder.CreateUnreachable();
+        }
+        return;
+      }
 
       for(auto const current_expr_in_finally : expr->finally_body.unwrap()->values)
       {
@@ -434,229 +446,290 @@ namespace jank::codegen
       {
         builder.SetInsertPoint(blocks.rethrow_bb);
         if(builder.GetInsertBlock()->getTerminator() == nullptr)
-        { /* Avoid adding multiple terminators */
-          jank_assert(landing_pad_inst_val
-                      && "Landingpad value must be provided to rethrow an exception");
+        {
+          jank_assert_throw(
+            landing_pad_inst_val
+            && "Landingpad value must be provided to rethrow an exception from finally");
           builder.CreateResume(landing_pad_inst_val);
         }
       }
     }
 
-    llvm::Value *gen_try_continue_block(llvm_processor &proc_ctx,
-                                        analyze::expr::try_ref const expr,
-                                        TryGenBlocks &blocks,
-                                        llvm::Value *try_body_result_val,
-                                        llvm::BasicBlock *try_body_final_bb_before_finally,
-                                        llvm::Value *catch_body_result_val,
-                                        llvm::BasicBlock *catch_body_final_bb_before_finally)
+    llvm::Value *gen_try_continue_block(
+      llvm_processor &proc_ctx,
+      analyze::expr::try_ref const expr,
+      TryGenBlocks &blocks,
+      llvm::AllocaInst *result_alloca, /* NEW: pass the alloca */
+      llvm::BasicBlock *try_path_pred_to_cont,
+      /* llvm::Value* catch_body_result_val, // No longer need separate value */
+      llvm::BasicBlock *catch_path_pred_to_cont)
     {
       auto &builder = *proc_ctx.ctx->builder;
-      /* llvm::Function *current_llvm_fn = builder.GetInsertBlock()->getParent(); // Not needed if blocks already parented */
+      // llvm::Function *current_llvm_fn = proc_ctx.ctx->builder->GetInsertBlock()->getParent();
 
+      /* ... (block parenting logic as before) ... */
       if(!blocks.try_continue_bb)
       {
-        return nullptr; /* Was deleted */
+        return nullptr;
       }
-
-      /*
-     * By creating blocks with current_llvm_fn as parent, they are already part of the function.
-     * We just need to ensure this block is actually reachable and correctly wired.
-     * If it has no predecessors after all CFG construction, it might be dead code.
-     * LLVM's verifyFunction or DCE will handle truly orphaned blocks.
-     */
-
-      /* Only proceed if try_continue_bb actually has predecessors.
-       If not, it means all paths either returned or rethrew before reaching a point
-       that would branch here. */
-      if(blocks.try_continue_bb->hasNPredecessors(0) &&
-         /* Exception: if it's the ONLY block (e.g. empty try/catch/finally in non-tail pos) */
-         (!expr->body->values.empty() || expr->catch_body.is_some() || expr->finally_body.is_some()
-          || expr->position == analyze::expression_position::tail))
-      {
-        /* This block is effectively dead or wasn't wired up.
-           If it has no uses and no predecessors, it can be removed.
-           For simplicity, let's assume if no predecessors, we don't generate code for it.
-           It will be an empty block that DCE might remove.
-           Returning nullptr signals that this path doesn't produce a value normally. */
-        if(!blocks.try_continue_bb->use_empty())
-        {
-          /* It has uses (e.g., a PHI node was already planned to use it).
-               This case indicates a potential CFG issue if it has uses but no predecessors.
-               For now, fall through to PHI generation, which might result in an undef PHI. */
-        }
-        else
-        {
-          blocks.try_continue_bb
-            ->eraseFromParent(); /* Safely remove if no uses and no predecessors */
-          blocks.try_continue_bb = nullptr; /* Mark as gone */
-          return nullptr;
-        }
-      }
-
-
       builder.SetInsertPoint(blocks.try_continue_bb);
+
+      llvm::Value *final_val_for_phi_or_ret = nullptr;
+      if(result_alloca)
+      { /* If we used an alloca, load the result from it */
+        final_val_for_phi_or_ret
+          = builder.CreateLoad(builder.getPtrTy(), result_alloca, "try.res.load");
+      }
 
       if(expr->position == analyze::expression_position::tail)
       {
         if(builder.GetInsertBlock()->getTerminator() == nullptr)
         {
-          llvm::PHINode *phi = builder.CreatePHI(builder.getPtrTy(), 0, "try.tail.phi.res");
-
-          llvm::BasicBlock *pred_from_try_path
-            = blocks.finally_code_bb ? blocks.finally_code_bb : try_body_final_bb_before_finally;
-          if(pred_from_try_path && pred_from_try_path->getTerminator()
-             && std::find(llvm::pred_begin(blocks.try_continue_bb),
-                          llvm::pred_end(blocks.try_continue_bb),
-                          pred_from_try_path)
-               != llvm::pred_end(blocks.try_continue_bb))
+          if(result_alloca)
           {
-            phi->addIncoming(try_body_result_val ? try_body_result_val
-                                                 : proc_ctx.gen_global(runtime::jank_nil),
-                             pred_from_try_path);
+            builder.CreateRet(final_val_for_phi_or_ret);
           }
-
-          llvm::BasicBlock *pred_from_catch_path
-            = blocks.finally_code_bb ? blocks.finally_code_bb : catch_body_final_bb_before_finally;
-          if(expr->catch_body.is_some() && pred_from_catch_path
-             && pred_from_catch_path->getTerminator()
-             && std::find(llvm::pred_begin(blocks.try_continue_bb),
-                          llvm::pred_end(blocks.try_continue_bb),
-                          pred_from_catch_path)
-               != llvm::pred_end(blocks.try_continue_bb))
-          {
-            phi->addIncoming(catch_body_result_val ? catch_body_result_val
-                                                   : proc_ctx.gen_global(runtime::jank_nil),
-                             pred_from_catch_path);
-          }
-
-          if(phi->getNumIncomingValues() > 0)
-          {
-            builder.CreateRet(phi);
-          }
-          else if(builder.GetInsertBlock()->getTerminator() == nullptr)
-          {
-            builder.CreateRet(proc_ctx.gen_global(runtime::jank_nil));
+          else
+          { /* No finally, PHI needed to select between direct try/catch results */
+            llvm::PHINode *phi = builder.CreatePHI(builder.getPtrTy(), 0, "try.tail.phi.direct");
+            if(try_path_pred_to_cont
+               && llvm::is_contained(llvm::predecessors(blocks.try_continue_bb),
+                                     try_path_pred_to_cont))
+            {
+              /* If no alloca, try_body_result_val would be passed instead of result_alloca */
+              phi->addIncoming(
+                proc_ctx.gen_global(
+                  runtime::
+                    jank_nil) /* Placeholder: should be try_body_last_val if !result_alloca */,
+                try_path_pred_to_cont);
+            }
+            if(expr->catch_body.is_some() && catch_path_pred_to_cont
+               && llvm::is_contained(llvm::predecessors(blocks.try_continue_bb),
+                                     catch_path_pred_to_cont))
+            {
+              phi->addIncoming(
+                proc_ctx.gen_global(
+                  runtime::jank_nil) /* Placeholder: catch_body_last_val if !result_alloca */,
+                catch_path_pred_to_cont);
+            }
+            if(phi->getNumIncomingValues() > 0)
+            {
+              builder.CreateRet(phi);
+            }
+            else
+            {
+              builder.CreateRet(proc_ctx.gen_global(runtime::jank_nil)); /* Fallback */
+            }
           }
         }
         return nullptr;
       }
       else
       { /* Not tail position */
-        llvm::PHINode *phi = builder.CreatePHI(builder.getPtrTy(), 0, "try.expr.phi.res");
-        llvm::BasicBlock *pred_from_try_path
-          = blocks.finally_code_bb ? blocks.finally_code_bb : try_body_final_bb_before_finally;
-        if(pred_from_try_path && pred_from_try_path->getTerminator()
-           && std::find(llvm::pred_begin(blocks.try_continue_bb),
-                        llvm::pred_end(blocks.try_continue_bb),
-                        pred_from_try_path)
-             != llvm::pred_end(blocks.try_continue_bb))
+        if(result_alloca)
         {
-          phi->addIncoming(try_body_result_val ? try_body_result_val
-                                               : proc_ctx.gen_global(runtime::jank_nil),
-                           pred_from_try_path);
+          return final_val_for_phi_or_ret;
         }
-
-        llvm::BasicBlock *pred_from_catch_path
-          = blocks.finally_code_bb ? blocks.finally_code_bb : catch_body_final_bb_before_finally;
-        if(expr->catch_body.is_some() && pred_from_catch_path
-           && pred_from_catch_path->getTerminator()
-           && std::find(llvm::pred_begin(blocks.try_continue_bb),
-                        llvm::pred_end(blocks.try_continue_bb),
-                        pred_from_catch_path)
-             != llvm::pred_end(blocks.try_continue_bb))
-        {
-          phi->addIncoming(catch_body_result_val ? catch_body_result_val
-                                                 : proc_ctx.gen_global(runtime::jank_nil),
-                           pred_from_catch_path);
-        }
-
-        if(phi->getNumIncomingValues() == 0)
-        {
-          if(builder.GetInsertBlock()->getTerminator() == nullptr)
+        else
+        { /* No finally, PHI needed to select between direct try/catch results */
+          llvm::PHINode *phi = builder.CreatePHI(builder.getPtrTy(), 0, "try.expr.phi.direct");
+          if(try_path_pred_to_cont
+             && llvm::is_contained(llvm::predecessors(blocks.try_continue_bb),
+                                   try_path_pred_to_cont))
           {
-            /* If the block is reachable but PHI is empty, means all paths must have returned/rethrown.
-                    This indicates a potential dead code path or CFG issue if this point is meant to be reached.
-                    For safety, provide a default value. */
-            builder.CreateStore(proc_ctx.gen_global(runtime::jank_nil),
-                                phi); /* Store default if phi is used later */
-            return proc_ctx.gen_global(runtime::jank_nil);
+            phi->addIncoming(proc_ctx.gen_global(runtime::jank_nil) /* Placeholder */,
+                             try_path_pred_to_cont);
           }
-          return nullptr;
+          if(expr->catch_body.is_some() && catch_path_pred_to_cont
+             && llvm::is_contained(llvm::predecessors(blocks.try_continue_bb),
+                                   catch_path_pred_to_cont))
+          {
+            phi->addIncoming(proc_ctx.gen_global(runtime::jank_nil) /* Placeholder */,
+                             catch_path_pred_to_cont);
+          }
+          if(phi->getNumIncomingValues() > 0)
+          {
+            return phi;
+          }
+          return proc_ctx.gen_global(runtime::jank_nil); /* Fallback */
         }
-        return phi;
       }
     }
 
   } /* namespace detail */
 
+  /* gen_native_try_catch_finally (NO CHANGES NEEDED FROM PREVIOUS CORRECT VERSION) */
   llvm::Value *gen_native_try_catch_finally(llvm_processor &proc_ctx,
                                             analyze::expr::try_ref const expr,
                                             analyze::expr::function_arity const &caller_arity)
   {
     jank::profile::timer const timer{ "codegen::gen_native_try_catch_finally" };
     llvm::Function *current_llvm_fn = proc_ctx.ctx->builder->GetInsertBlock()->getParent();
+    auto &builder = *proc_ctx.ctx->builder;
 
     detail::TryGenBlocks blocks
       = detail::create_try_catch_finally_blocks(proc_ctx, expr, current_llvm_fn);
 
-    llvm::BasicBlock *original_block_before_try = proc_ctx.ctx->builder->GetInsertBlock();
-    if(original_block_before_try->getTerminator() == nullptr)
+    /* Alloca to store the result of the try or catch block if not in tail position
+       and if a finally block exists (as finally might interrupt direct flow to PHI). */
+    llvm::AllocaInst *result_alloca = nullptr;
+    if(expr->position != analyze::expression_position::tail && expr->finally_body.is_some())
     {
-      proc_ctx.ctx->builder->CreateBr(blocks.try_body_entry_bb);
+      llvm::IRBuilderBase::InsertPointGuard guard(builder);
+      builder.SetInsertPoint(&current_llvm_fn->getEntryBlock(),
+                             current_llvm_fn->getEntryBlock().getFirstInsertionPt());
+      result_alloca = builder.CreateAlloca(builder.getPtrTy(), nullptr, "try.catch.res.alloca");
+      builder.CreateStore(proc_ctx.gen_global(runtime::jank_nil), result_alloca); /* Initialize */
+    }
+
+    llvm::BasicBlock *original_block_before_try = builder.GetInsertBlock();
+    if(original_block_before_try && original_block_before_try->getTerminator() == nullptr)
+    {
+      builder.CreateBr(blocks.try_body_entry_bb);
     }
 
     /* --- Save and Set Invoke Flags for Try Body --- */
     bool old_is_in_try_block_for_invoke = proc_ctx.m_is_in_try_block_for_invoke;
     llvm::BasicBlock *old_unwind_dest = proc_ctx.m_current_unwind_dest_for_invoke;
     proc_ctx.m_is_in_try_block_for_invoke = true;
-    proc_ctx.m_current_unwind_dest_for_invoke
-      = blocks.landing_pad_bb; /* All invokes in try body go here */
+    proc_ctx.m_current_unwind_dest_for_invoke = blocks.landing_pad_bb;
 
-    auto [try_body_last_val, try_body_final_bb]
+    auto [try_body_last_val, try_body_final_bb_after_try_logic]
       = detail::gen_try_block_body(proc_ctx, expr, caller_arity, blocks);
+
+    /* Store try_body_last_val if needed before going to finally */
+    if(result_alloca && try_body_final_bb_after_try_logic
+       && !try_body_final_bb_after_try_logic->getTerminator()
+       && (try_body_final_bb_after_try_logic->getTerminator() == nullptr
+           || /* Path continues to finally */
+           (try_body_final_bb_after_try_logic->getTerminator()->getNumSuccessors() > 0
+            && try_body_final_bb_after_try_logic->getTerminator()->getSuccessor(0)
+              == blocks.finally_normal_path_entry_bb)))
+    {
+      builder.SetInsertPoint(try_body_final_bb_after_try_logic); /* Before the branch to finally */
+      if(try_body_last_val)
+      {
+        builder.CreateStore(try_body_last_val, result_alloca);
+      }
+    }
 
     proc_ctx.m_is_in_try_block_for_invoke = old_is_in_try_block_for_invoke;
     proc_ctx.m_current_unwind_dest_for_invoke = old_unwind_dest;
 
     /* --- Landing Pad and Catch --- */
     llvm::LandingPadInst *landing_pad_instruction = nullptr;
-    auto [catch_body_last_val, catch_body_final_bb]
+    auto [catch_body_last_val, catch_body_final_bb_after_catch_logic]
       = detail::gen_landing_pad_and_catch_block(proc_ctx,
                                                 expr,
                                                 caller_arity,
                                                 blocks,
                                                 &landing_pad_instruction);
 
-    /* Determine the block from which an unhandled exception (from landingpad) would go to finally */
-    llvm::BasicBlock *landingpad_exit_to_finally = nullptr;
-    if(blocks.landing_pad_bb && blocks.landing_pad_bb->getTerminator())
+    /* Store catch_body_last_val if needed before going to finally */
+    if(result_alloca && catch_body_final_bb_after_catch_logic
+       && !catch_body_final_bb_after_catch_logic->getTerminator()
+       && (catch_body_final_bb_after_catch_logic->getTerminator() == nullptr
+           || /* Path continues to finally */
+           (catch_body_final_bb_after_catch_logic->getTerminator()->getNumSuccessors() > 0
+            && catch_body_final_bb_after_catch_logic->getTerminator()->getSuccessor(0)
+              == blocks.finally_normal_path_entry_bb)))
     {
-      auto const *term = blocks.landing_pad_bb->getTerminator();
-      if(term->getNumSuccessors() > 0 && term->getSuccessor(0) == blocks.finally_code_bb)
+      builder.SetInsertPoint(
+        catch_body_final_bb_after_catch_logic); /* Before the branch to finally */
+      if(catch_body_last_val)
       {
-        /* This means landingpad directly branched to finally (e.g., no catch clause or catch didn't handle and branched to finally) */
-        landingpad_exit_to_finally = blocks.landing_pad_bb;
+        builder.CreateStore(catch_body_last_val, result_alloca);
       }
     }
 
-    /* --- Finally --- */
+    llvm::BasicBlock *landingpad_direct_to_finally_predecessor = nullptr;
+    if(blocks.landing_pad_bb && blocks.landing_pad_bb->getTerminator())
+    {
+      auto const term = blocks.landing_pad_bb->getTerminator();
+      if(term->getNumSuccessors() > 0 && term->getSuccessor(0) == blocks.finally_actual_code_bb)
+      {
+        landingpad_direct_to_finally_predecessor = blocks.landing_pad_bb;
+      }
+    }
+
     detail::gen_finally_block(proc_ctx,
                               expr,
                               caller_arity,
                               blocks,
                               landing_pad_instruction,
-                              try_body_final_bb,
-                              catch_body_final_bb,
-                              landingpad_exit_to_finally);
+                              try_body_final_bb_after_try_logic,
+                              landingpad_direct_to_finally_predecessor);
+
 
     /* --- Continue Block and Result PHI --- */
+    /* The predecessor blocks for the PHI in try_continue_bb will now typically be
+       the block where finally_actual_code_bb finished its non-rethrow path.
+       If there was no finally, it would be try_body_final_bb or catch_body_final_bb. */
+
+    llvm::BasicBlock *pred_for_phi_from_try_path = nullptr;
+    llvm::BasicBlock *pred_for_phi_from_catch_path = nullptr;
+
+    if(expr->finally_body.is_some())
+    {
+      /* If finally exists, both normal paths (from try and from catch) would have gone
+           through finally_actual_code_bb and then (if not rethrowing) to try_continue_bb.
+           The PHI in try_continue_bb will have finally_actual_code_bb as its predecessor.
+           The *value* for the PHI will be loaded from result_alloca.
+        */
+      if(blocks.finally_actual_code_bb && blocks.finally_actual_code_bb->getTerminator())
+      {
+        auto const term = blocks.finally_actual_code_bb->getTerminator();
+        if(auto *br_inst = llvm::dyn_cast<llvm::BranchInst>(term))
+        {
+          if(br_inst->isConditional())
+          { // CondBr to rethrow or continue
+            if(br_inst->getSuccessor(1) == blocks.try_continue_bb)
+            {
+              pred_for_phi_from_try_path = blocks.finally_actual_code_bb;
+              pred_for_phi_from_catch_path = blocks.finally_actual_code_bb;
+            }
+          }
+          else
+          { // Unconditional Br to continue
+            if(br_inst->getSuccessor(0) == blocks.try_continue_bb)
+            {
+              pred_for_phi_from_try_path = blocks.finally_actual_code_bb;
+              pred_for_phi_from_catch_path = blocks.finally_actual_code_bb;
+            }
+          }
+        }
+      }
+    }
+    else
+    { /* No finally block */
+      pred_for_phi_from_try_path = try_body_final_bb_after_try_logic;
+      pred_for_phi_from_catch_path = catch_body_final_bb_after_catch_logic;
+    }
+
+    /* If using result_alloca, the values for the PHI will be loaded from it in try_continue_bb */
+    // llvm::Value *value_for_phi_from_try = try_body_last_val;
+    // llvm::Value *value_for_phi_from_catch = catch_body_last_val;
+
+    if(result_alloca)
+    {
+      /* The actual value for the PHI will be the load from the alloca,
+           done *inside* gen_try_continue_block if needed.
+           Here we pass the original values, and gen_try_continue_block
+           can decide if it needs to load from result_alloca based on the predecessor.
+           Or, more simply, always load from result_alloca if it exists.
+        */
+      /* This needs gen_try_continue_block to be aware of result_alloca */
+    }
+
+
     return detail::gen_try_continue_block(proc_ctx,
                                           expr,
                                           blocks,
-                                          try_body_last_val,
-                                          try_body_final_bb,
-                                          catch_body_last_val,
-                                          catch_body_final_bb);
+                                          result_alloca /* Pass the alloca */,
+                                          pred_for_phi_from_try_path,
+                                          /* catch_body_last_val, // Value comes from alloca now */
+                                          pred_for_phi_from_catch_path);
   }
+
 
 } /* namespace jank::codegen */

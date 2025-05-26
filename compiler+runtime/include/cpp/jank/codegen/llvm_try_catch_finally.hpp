@@ -12,11 +12,13 @@ namespace jank::codegen
     /* Structure to hold all the basic blocks for a try/catch/finally construct */
     struct TryGenBlocks
     {
-      llvm::BasicBlock *try_body_entry_bb{};
-      llvm::BasicBlock *landing_pad_bb{};
       llvm::BasicBlock *catch_body_entry_bb{};
+      llvm::BasicBlock *finally_actual_code_bb{};
       llvm::BasicBlock *finally_code_bb{};
+      llvm::BasicBlock *finally_normal_path_entry_bb{}; /* Normal dest from try/catch to finally */
+      llvm::BasicBlock *landing_pad_bb{};
       llvm::BasicBlock *rethrow_bb{};
+      llvm::BasicBlock *try_body_entry_bb{};
       llvm::BasicBlock *try_continue_bb{};
     };
 
@@ -47,17 +49,14 @@ namespace jank::codegen
                                     TryGenBlocks &blocks,
                                     llvm::LandingPadInst **out_landing_pad_inst);
 
-    void gen_finally_block(
-      llvm_processor &proc_ctx,
-      analyze::expr::try_ref expr,
-      analyze::expr::function_arity &caller_arity,
-      TryGenBlocks &blocks,
-      llvm::Value *landing_pad_inst_val, /* The result of CreateLandingPad (type {ptr, i32}) */
-      llvm::BasicBlock *from_try_normal_exit_bb,
-      llvm::BasicBlock *from_catch_normal_exit_bb,
-      llvm::BasicBlock *
-        from_landingpad_unhandled_exit_bb /* BB from landingpad if no catch or catch didn't handle */
-    );
+    void
+    gen_finally_block(llvm_processor &proc_ctx,
+                      analyze::expr::try_ref const expr, /* Keep const if not modified */
+                      analyze::expr::function_arity const &caller_arity, /* CORRECTED: const& */
+                      TryGenBlocks &blocks,
+                      llvm::Value *landing_pad_inst_val,
+                      llvm::BasicBlock *from_try_normal_final_bb,
+                      llvm::BasicBlock *from_landingpad_unhandled_bb);
 
     llvm::Value *gen_try_continue_block(llvm_processor &proc_ctx,
                                         analyze::expr::try_ref expr,

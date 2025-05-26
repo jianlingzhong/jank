@@ -183,42 +183,269 @@ namespace jank::codegen
     }
   }
 
+  bool llvm_processor::arity_contains_native_try(analyze::expr::function_arity const &arity) const
+  {
+    if(arity.body->values.empty())
+    {
+      return false;
+    }
+    return contains_native_try(arity.body);
+  }
+
+  bool llvm_processor::contains_native_try(analyze::expression_ref expr_node) const
+  {
+    if(expr_node.data == nullptr)
+    {
+      return false;
+    }
+    if(expr_node->kind == analyze::expression_kind::try_)
+    {
+      return true;
+    }
+    // ... (FULL IMPLEMENTATION from previous response) ...
+    bool found = false;
+    analyze::visit_expr(
+      [&found, this](auto typed_expr) {
+        if(found)
+        {
+          return;
+        }
+        using ExprNodeT = typename decltype(typed_expr)::value_type;
+
+        if constexpr(std::is_same_v<ExprNodeT, analyze::expr::call>)
+        {
+          if(contains_native_try(typed_expr->source_expr))
+          {
+            found = true;
+            return;
+          }
+          for(auto const &arg : typed_expr->arg_exprs)
+          {
+            if(contains_native_try(arg))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::def>)
+        {
+          if(typed_expr->value.is_some() && contains_native_try(typed_expr->value.unwrap()))
+          {
+            found = true;
+            return;
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::do_>)
+        {
+          for(auto const &stmt : typed_expr->values)
+          {
+            if(contains_native_try(stmt))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::function>)
+        {
+          for(auto const &arity : typed_expr->arities)
+          {
+            if(arity_contains_native_try(arity))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::if_>)
+        {
+          if(contains_native_try(typed_expr->condition))
+          {
+            found = true;
+            return;
+          }
+          if(contains_native_try(typed_expr->then))
+          {
+            found = true;
+            return;
+          }
+          if(typed_expr->else_.is_some() && contains_native_try(typed_expr->else_.unwrap()))
+          {
+            found = true;
+            return;
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::let>)
+        {
+          for(auto const &pair : typed_expr->pairs)
+          {
+            if(contains_native_try(pair.second))
+            {
+              found = true;
+              return;
+            }
+          }
+          if(contains_native_try(typed_expr->body))
+          {
+            found = true;
+            return;
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::letfn>)
+        {
+          for(auto const &pair : typed_expr->pairs)
+          {
+            if(contains_native_try(pair.second))
+            {
+              found = true;
+              return;
+            }
+          }
+          if(contains_native_try(typed_expr->body))
+          {
+            found = true;
+            return;
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::list>)
+        {
+          for(auto const &item : typed_expr->data_exprs)
+          {
+            if(contains_native_try(item))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::vector>)
+        {
+          for(auto const &item : typed_expr->data_exprs)
+          {
+            if(contains_native_try(item))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::map>)
+        {
+          for(auto const &pair : typed_expr->data_exprs)
+          {
+            if(contains_native_try(pair.first))
+            {
+              found = true;
+              return;
+            }
+            if(found)
+            {
+              return;
+            }
+            if(contains_native_try(pair.second))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::set>)
+        {
+          for(auto const &item : typed_expr->data_exprs)
+          {
+            if(contains_native_try(item))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::named_recursion>)
+        {
+          if(contains_native_try(jtl::ref<analyze::expression>(&typed_expr->recursion_ref)))
+          {
+            found = true;
+            return;
+          }
+          for(auto const &arg : typed_expr->arg_exprs)
+          {
+            if(contains_native_try(arg))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::recur>)
+        {
+          for(auto const &arg : typed_expr->arg_exprs)
+          {
+            if(contains_native_try(arg))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::throw_>)
+        {
+          if(contains_native_try(typed_expr->value))
+          {
+            found = true;
+            return;
+          }
+        }
+        else if constexpr(std::is_same_v<ExprNodeT, analyze::expr::case_>)
+        {
+          if(contains_native_try(typed_expr->value_expr))
+          {
+            found = true;
+            return;
+          }
+          if(found)
+          {
+            return;
+          }
+          if(contains_native_try(typed_expr->default_expr))
+          {
+            found = true;
+            return;
+          }
+          if(found)
+          {
+            return;
+          }
+          for(auto const &sub_expr : typed_expr->exprs)
+          {
+            if(contains_native_try(sub_expr))
+            {
+              found = true;
+              return;
+            }
+          }
+        }
+      },
+      expr_node);
+    return found;
+  }
+
   jtl::string_result<void> llvm_processor::gen()
   {
     profile::timer const timer{ "ir gen" };
-    /* This is where the decision about needing a personality function for THIS specific LLVM function
-   needs to be made. If *any* 'try' expression that uses native EH will be generated
-   INSIDE this root_fn, then this root_fn needs a personality function. */
-    bool this_llvm_function_will_contain_native_eh = true;
-    /*
-     * TODO: Determine if 'this->root_fn' (the expr::function_ref passed to llvm_processor)
-     * contains any expr::try_ that will use the new native EH path.
-     * This might involve a quick pre-scan of the AST for this->root_fn.
-     * For now, let's assume if we are using the new try/catch, it might happen.
-     * A simpler, albeit broader, approach is to add it if *any* try is present,
-     * or even always add it if C++ exceptions can generally propagate from JITted code.
-     * For this specific example, we know the try/catch *is* the content.
-     */
-    // For the example (try (throw :success) (catch e e)), if this 'gen()' is for the
-    // function wrapping that 'try', then this_llvm_function_will_contain_native_eh would be true.
-    // You need a robust way to determine this. For now, a placeholder:
-    // if(expr_contains_native_try(this->root_fn))
-    // { // You'd need to implement expr_contains_native_try
-    //   this_llvm_function_will_contain_native_eh = true;
-    // }
 
     if(target != compilation_target::function)
     {
       create_global_ctor();
     }
 
-    for(auto const &arity : root_fn->arities)
+    for(auto const &arity_info : root_fn->arities)
     {
-      /* TODO: Add profiling to the fn body? Need to exit on every return. */
-      create_function(arity);
+      create_function(arity_info);
+      jank_assert_throw(this->fn
+                        && "LLVM Function (this->fn) was not created/set in create_function");
 
-      /* ***** ADD PERSONALITY FUNCTION HERE, AFTER this->fn IS VALID ***** */
-      if(this_llvm_function_will_contain_native_eh && this->fn)
+      if(contains_native_try(arity_info.body))
       {
         llvm::FunctionType *personality_ty
           = llvm::FunctionType::get(ctx->builder->getInt32Ty(), /*isVarArg=*/true);
@@ -228,7 +455,7 @@ namespace jank::codegen
         if(llvm::Function *pfn = llvm::dyn_cast<llvm::Function>(personality_callee.getCallee()))
         {
           if(pfn->empty())
-          { /* If it's just a declaration */
+          {
             pfn->setLinkage(llvm::GlobalValue::ExternalLinkage);
           }
           this->fn->setPersonalityFn(pfn);
@@ -237,50 +464,132 @@ namespace jank::codegen
         {
           llvm::errs() << "CRITICAL ERROR: Could not get __gxx_personality_v0 as a function for "
                        << this->fn->getName() << "\n";
-          /* This is a fatal error for native C++ EH */
-          return jtl::err("Failed to set personality function");
+          return jtl::err(
+            util::format("Failed to set personality function for {}", this->fn->getName().str()));
         }
       }
 
-      for(auto const form : arity.body->values)
+      bool old_is_in_try_block_for_invoke = m_is_in_try_block_for_invoke;
+      llvm::BasicBlock *old_unwind_dest = m_current_unwind_dest_for_invoke;
+      m_is_in_try_block_for_invoke = false;
+      m_current_unwind_dest_for_invoke = nullptr;
+
+      llvm::Value *last_val_of_arity_body = gen_global(runtime::jank_nil);
+
+      if(!arity_info.body->values.empty())
       {
-        gen(form, arity);
+        llvm::BasicBlock *current_bb = &this->fn->getEntryBlock();
+        for(size_t i = 0; i < arity_info.body->values.size(); ++i)
+        {
+          auto const form = arity_info.body->values[i];
+
+          if(current_bb->getTerminator())
+          {
+            if(i < arity_info.body->values.size())
+            {
+              /* If more forms but block ended, create new (likely dead) block.
+                          This can happen if a 'ret' or 'recur' was in the middle of a 'do'.
+                          The new block should be unreachable if the CFG is correct. */
+              current_bb = llvm::BasicBlock::Create(*ctx->llvm_ctx, "dead.form.cont", this->fn);
+            }
+            else
+            {
+              break; /* All forms processed or path terminated */
+            }
+          }
+          ctx->builder->SetInsertPoint(current_bb);
+          last_val_of_arity_body = gen(form, arity_info);
+          current_bb = ctx->builder->GetInsertBlock();
+        }
       }
 
-      /* If we have an empty function, ensure we're still returning nil. */
-      if(arity.body->values.empty())
+      m_is_in_try_block_for_invoke = old_is_in_try_block_for_invoke;
+      m_current_unwind_dest_for_invoke = old_unwind_dest;
+
+      llvm::BasicBlock *last_active_block = ctx->builder->GetInsertBlock();
+      if(last_active_block && last_active_block->getParent() == this->fn
+         && last_active_block->getTerminator() == nullptr)
       {
-        ctx->builder->CreateRet(gen_global(jank_nil));
+        if(last_val_of_arity_body)
+        {
+          ctx->builder->CreateRet(last_val_of_arity_body);
+        }
+        else
+        {
+          ctx->builder->CreateRet(gen_global(runtime::jank_nil));
+        }
       }
-    }
+      else if(this->fn->empty() || this->fn->getEntryBlock().getTerminator() == nullptr)
+      {
+        /* If the function is completely empty OR the entry block itself was not terminated (e.g. empty body) */
+        llvm::BasicBlock *target_block = this->fn->empty()
+          ? llvm::BasicBlock::Create(*ctx->llvm_ctx, "entry", this->fn)
+          : &this->fn->getEntryBlock();
+        if(target_block->getTerminator() == nullptr)
+        {
+          ctx->builder->SetInsertPoint(target_block);
+          ctx->builder->CreateRet(gen_global(runtime::jank_nil));
+        }
+      }
 
-    if(target == compilation_target::eval)
-    {
-      //to_string();
-    }
+      std::string err_str_fn;
+      llvm::raw_string_ostream err_os_fn(err_str_fn);
+      if(llvm::verifyFunction(*(this->fn), &err_os_fn))
+      {
+        llvm::errs() << "LLVM Function Verification Failed for arity of: " << root_fn->name.c_str()
+                     << " (LLVM name: " << this->fn->getName() << ")\n";
+        llvm::errs() << "---------------- LLVM IR for Failed Function ----------------\n";
+        this->fn->print(llvm::errs(), nullptr);
+        llvm::errs() << "\n---------------- Verifier Output ----------------\n";
+        llvm::errs() << err_os_fn.str() << "\n";
+        llvm::errs() << "-----------------------------------------------------------\n";
+        return jtl::err(
+          util::format("LLVM Function verification failed for {}", this->fn->getName().str()));
+      }
 
-    /* Run our optimization passes on the function, mutating it. */
-    ctx->fpm->run(*fn, *ctx->fam);
+      // ctx->fpm->run(*(this->fn), *ctx->fam);
+    }
 
     if(target != compilation_target::function)
     {
-      llvm::IRBuilder<>::InsertPointGuard const guard{ *ctx->builder };
-      ctx->builder->SetInsertPoint(ctx->global_ctor_block);
-
-      if(profile::is_enabled())
+      if(ctx->global_ctor_block && ctx->global_ctor_block->getParent())
       {
-        auto const fn_type(
-          llvm::FunctionType::get(ctx->builder->getVoidTy(), { ctx->builder->getPtrTy() }, false));
-        auto const fn(ctx->module->getOrInsertFunction("jank_profile_exit", fn_type));
-        ctx->builder->CreateCall(
-          fn,
-          { gen_c_string(util::format("global ctor for {}", root_fn->name)) });
+        llvm::IRBuilder<>::InsertPointGuard const guard{ *ctx->builder };
+        ctx->builder->SetInsertPoint(ctx->global_ctor_block);
+        if(ctx->global_ctor_block->getTerminator() == nullptr)
+        {
+          if(profile::is_enabled())
+          {
+            auto const profile_fn_type(llvm::FunctionType::get(ctx->builder->getVoidTy(),
+                                                               { ctx->builder->getPtrTy() },
+                                                               false));
+            auto const profile_fn(
+              ctx->module->getOrInsertFunction("jank_profile_exit", profile_fn_type));
+            ctx->builder->CreateCall(
+              profile_fn,
+              { gen_c_string(util::format("global ctor for {}", root_fn->name)) });
+          }
+          ctx->builder->CreateRetVoid();
+        }
       }
-
-      ctx->builder->CreateRetVoid();
     }
 
-    return ok();
+    std::string err_str_mod;
+    llvm::raw_string_ostream err_os_mod(err_str_mod);
+    if(llvm::verifyModule(*ctx->module, &err_os_mod))
+    {
+      llvm::errs() << "LLVM Module Verification Failed for module: "
+                   << ctx->module->getModuleIdentifier() << "\n";
+      llvm::errs() << "---------------- Verifier Output ----------------\n";
+      llvm::errs() << err_os_mod.str() << "\n";
+      llvm::errs() << "---------------- Full Module IR -------------------\n";
+      ctx->module->print(llvm::errs(), nullptr);
+      llvm::errs() << "\n-----------------------------------------------------------\n";
+      return jtl::err(
+        util::format("LLVM Module verification failed for {}", ctx->module->getModuleIdentifier()));
+    }
+
+    return jtl::ok();
   }
 
   llvm::Value *llvm_processor::gen(expression_ref const ex, expr::function_arity const &fn_arity)
@@ -585,31 +894,45 @@ namespace jank::codegen
     return ret;
   }
 
-  llvm::Value *
-  llvm_processor::gen(expr::function_ref const expr, expr::function_arity const &fn_arity)
+  llvm::Value *llvm_processor::gen(analyze::expr::function_ref const expr,
+                                   analyze::expr::function_arity const &enclosing_fn_arity)
   {
+    llvm::Value *fn_obj_val = nullptr;
     {
       llvm::IRBuilder<>::InsertPointGuard const guard{ *ctx->builder };
 
+      /* Create a new processor for the nested/inner function.
+           This 'nested' processor will generate the actual LLVM functions for 'expr'.
+           The context 'ctx' is moved to 'nested' and then moved back. */
       llvm_processor nested{ expr, std::move(ctx) };
-      auto const res{ nested.gen() };
+      auto const res{ nested.gen() }; /* This generates the LLVM code for expr's arities */
       if(res.is_err())
       {
-        /* TODO: Return error. */
-        res.expect_ok();
+        /* CORRECTED: Replace jank_panic with throw or your preferred error handling */
+        throw std::runtime_error(
+          util::format("Failed to generate nested function {}: {}",
+                       expr->name.c_str(), /* Use .c_str() if expr->name is jtl::immutable_string */
+                       res.expect_err().c_str() /* Same for error message string */
+                       ));
       }
-
-      ctx = std::move(nested.ctx);
+      ctx = std::move(nested.ctx); /* Retrieve the context */
     }
 
-    auto const fn_obj(gen_function_instance(expr, fn_arity));
+    /* Now, in the *current* function's context (enclosing_fn_arity's LLVM function),
+       create the runtime obj::jit_function or obj::jit_closure FOR the `expr` we just processed.
+       This runtime object is what the current LLVM function should return/use if `expr` is its result. */
+    fn_obj_val = gen_function_instance(expr, enclosing_fn_arity);
 
-    if(expr->position == expression_position::tail)
+    /* If this function definition itself is in a tail position of the *enclosing* function */
+    if(expr->position == analyze::expression_position::tail)
     {
-      return ctx->builder->CreateRet(fn_obj);
+      if(ctx->builder->GetInsertBlock()->getTerminator() == nullptr)
+      { // Make sure current block isn't already terminated
+        ctx->builder->CreateRet(fn_obj_val);
+      }
+      return nullptr; /* Return was handled */
     }
-
-    return fn_obj;
+    return fn_obj_val;
   }
 
   llvm::Value *llvm_processor::gen(expr::recur_ref const expr, expr::function_arity const &arity)

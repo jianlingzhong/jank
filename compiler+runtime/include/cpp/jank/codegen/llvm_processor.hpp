@@ -180,5 +180,9 @@ namespace jank::codegen
     bool m_is_in_try_block_for_invoke{};
     llvm::BasicBlock *m_current_unwind_dest{};
     llvm::BasicBlock *m_current_unwind_dest_for_invoke{};
+
+  private:
+    bool contains_native_try(analyze::expression_ref expr_node) const;
+    bool arity_contains_native_try(analyze::expr::function_arity const &arity) const;
   };
 }
