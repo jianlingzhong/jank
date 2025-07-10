@@ -1,5 +1,10 @@
 #include <cstdarg>
 
+#include <llvm-c/Target.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/TargetSelect.h>
+
 #include <utility>
 
 #include <jank/c_api.h>
@@ -8,6 +13,7 @@
 #include <jank/runtime/core.hpp>
 #include <jank/profile/time.hpp>
 #include <jank/util/scope_exit.hpp>
+#include <jank/util/try.hpp>
 
 using namespace jank;
 using namespace jank::runtime;
@@ -897,34 +903,6 @@ extern "C"
     throw runtime::object_ref{ reinterpret_cast<object *>(o) };
   }
 
-  jank_object_ref jank_try(jank_object_ref const try_fn,
-                           jank_object_ref const catch_fn,
-                           jank_object_ref const finally_fn)
-  {
-    util::scope_exit const finally{ [=]() {
-      auto const finally_fn_obj(reinterpret_cast<object *>(finally_fn));
-      if(finally_fn_obj != jank_nil)
-      {
-        dynamic_call(finally_fn_obj);
-      }
-    } };
-
-    auto const try_fn_obj(reinterpret_cast<object *>(try_fn));
-    auto const catch_fn_obj(reinterpret_cast<object *>(catch_fn));
-    if(catch_fn_obj == jank_nil)
-    {
-      return dynamic_call(try_fn_obj).erase();
-    }
-    try
-    {
-      return dynamic_call(try_fn_obj).erase();
-    }
-    catch(object_ref const e)
-    {
-      return dynamic_call(catch_fn_obj, e).erase();
-    }
-  }
-
   void jank_profile_enter(char const * const label)
   {
     profile::enter(label);
@@ -938,5 +916,64 @@ extern "C"
   void jank_profile_report(char const * const label)
   {
     profile::report(label);
+  }
+
+  int jank_init(int const argc,
+                char const ** const argv,
+                jank_bool const init_default_ctx,
+                int (*fn)(int const, char const ** const))
+  {
+    JANK_TRY
+    {
+      /* To handle UTF-8 Text , we set the locale to the current environment locale
+       * Usage of the local locale allows better localization.
+       * Notably this might make text encoding become more platform dependent. */
+      std::locale::global(std::locale(""));
+
+      /* The GC needs to enabled even before arg parsing, since our native types,
+       * like strings, use the GC for allocations. It can still be configured later. */
+      GC_set_all_interior_pointers(1);
+      GC_enable();
+
+      //obj::symbol_ref r;
+      //r = make_box<obj::symbol>("foo");
+      //if(r)
+      //{
+      //  object_ref o;
+      //  o = erase(r);
+      //  util::println("r {}", r->to_code_string());
+      //}
+
+      //return 0;
+
+      llvm::llvm_shutdown_obj const Y{};
+
+      llvm::InitializeNativeTarget();
+      llvm::InitializeNativeTargetAsmParser();
+      llvm::InitializeNativeTargetAsmPrinter();
+
+      if(init_default_ctx)
+      {
+        runtime::__rt_ctx = new(GC) runtime::context{};
+      }
+
+      return fn(argc, argv);
+    }
+    JANK_CATCH_THEN(jank::util::print_exception, return 1)
+
+    return 0;
+  }
+
+  jank_object_ref jank_parse_command_line_args(int const argc, char const **argv)
+  {
+    obj::transient_vector trans;
+    auto const args{ util::cli::parse_empty(argc, argv) };
+
+    for(auto const &arg : args)
+    {
+      trans.conj_in_place(make_box(arg));
+    }
+
+    return trans.to_persistent().erase();
   }
 }
