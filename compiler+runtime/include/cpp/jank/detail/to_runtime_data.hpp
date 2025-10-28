@@ -100,4 +100,15 @@ namespace jank::detail
   {
     return m;
   }
+
+  template <typename T>
+  object_ref to_runtime_data(native_vector<jtl::option<T>> const &m)
+  {
+    object_ref ret(make_box<obj::persistent_vector>());
+    for(auto const &e : m)
+    {
+      ret = cons(to_runtime_data(e), ret);
+    }
+    return ret;
+  }
 }

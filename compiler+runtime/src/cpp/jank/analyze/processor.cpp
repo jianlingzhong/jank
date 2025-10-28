@@ -2701,13 +2701,6 @@ namespace jank::analyze
                 object_source(item),
                 latest_expansion(macro_expansions));
             }
-            if(has_catch)
-            {
-              /* TODO: Note where the other catch is. */
-              return error::analyze_invalid_try("Only one 'catch' form may be supplied.",
-                                                object_source(item),
-                                                latest_expansion(macro_expansions));
-            }
             has_catch = true;
 
             /* Verify we have (catch <sym> ...) */
@@ -2761,9 +2754,8 @@ namespace jank::analyze
                                                  "jank::runtime::oref<jank::runtime::object>")
                                                  .expect_ok() };
 
-            ret->catch_body = expr::catch_{ sym,
-                                            object_ref_type,
-                                            static_ref_cast<expr::do_>(do_res.expect_ok()) };
+            ret->catch_bodies.emplace_back(
+              expr::catch_{ sym, object_ref_type, static_ref_cast<expr::do_>(do_res.expect_ok()) });
           }
           break;
         case try_expression_type::finally_:
@@ -2797,9 +2789,12 @@ namespace jank::analyze
 
     ret->body->frame = try_frame;
     ret->body->propagate_position(position);
-    if(ret->catch_body.is_some())
+    if(!ret->catch_bodies.empty())
     {
-      ret->catch_body.unwrap().body->frame = catch_frame;
+      for(auto &catch_body : ret->catch_bodies)
+      {
+        catch_body.unwrap().body->frame = catch_frame;
+      }
     }
     if(ret->finally_body.is_some())
     {

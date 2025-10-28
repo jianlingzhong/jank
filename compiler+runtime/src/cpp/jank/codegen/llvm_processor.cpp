@@ -1675,7 +1675,7 @@ namespace jank::codegen
   llvm::Value *
   llvm_processor::impl::gen(expr::try_ref const expr, expr::function_arity const &arity)
   {
-    if(expr->catch_body.is_none() && expr->finally_body.is_none())
+    if(expr->catch_bodies.empty() && expr->finally_body.is_none())
     {
       return gen(expr->body, arity);
     }
@@ -1701,7 +1701,7 @@ namespace jank::codegen
 
     auto const is_return(expr->position == expression_position::tail);
     auto const has_finally{ expr->finally_body.is_some() };
-    auto const has_catch{ expr->catch_body.is_some() };
+    auto const has_catch{ !expr->catch_bodies.empty() };
 
     /* unwind_flag_slot: An alloca for a boolean (i1). This flag is set to true if the 'finally'
      * block is being entered as part of an exception unwinding process (e.g., from a landing pad).
@@ -1846,7 +1846,7 @@ namespace jank::codegen
        * When an exception is thrown, the personality function compares the thrown
        * exception's type info with the clauses added to the landing pads in the call stack.
        * If a match is found, control is transferred to this landing pad. */
-      auto const catch_type{ expr->catch_body.unwrap().type };
+      auto const catch_type{ expr->catch_bodies[0].unwrap().type };
       auto const exception_rtti{ Cpp::MangleRTTI(catch_type) };
 
       /* macOS requires explicit registration of RTTI symbols. */
@@ -1899,7 +1899,7 @@ namespace jank::codegen
       current_fn->insert(current_fn->end(), catch_body_bb);
       ctx->builder->SetInsertPoint(catch_body_bb);
 
-      auto const &[catch_sym, _, catch_body]{ expr->catch_body.unwrap() };
+      auto const &[catch_sym, _, catch_body]{ expr->catch_bodies[0].unwrap() };
       auto old_locals(locals);
       auto const begin_catch_fn{
         llvm_module->getOrInsertFunction("__cxa_begin_catch", ptr_ty, ptr_ty)
