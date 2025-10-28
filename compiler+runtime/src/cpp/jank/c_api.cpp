@@ -971,6 +971,7 @@ extern "C"
   void jank_throw(jank_object_ref const o)
   {
     throw runtime::object_ref{ reinterpret_cast<object *>(o) };
+    // throw o;
   }
 
   void jank_profile_enter(char const * const label)

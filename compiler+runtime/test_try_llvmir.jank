@@ -1,0 +1,61 @@
+(require 'jank.compiler)
+
+;(try (throw :success) (catch e (println e)))
+
+;(jank.compiler/native-source '(try (throw :success) (catch e e)))
+;(defn test [] (try (throw 1) (catch e (println e)) (finally (println 2))))
+
+;(test)
+
+;(jank.compiler/native-source
+; '(try (throw 1) (catch e (println e)) (finally (println 2))))
+
+(defn test1 [] (try (throw 1) (catch e (println e))))
+
+(jank.compiler/native-source '(test1))
+
+;(defn test2 []
+;  (try
+;    (throw 1)
+;    (catch _
+;      2)
+;    (finally
+;      (println 3))))
+;
+;(jank.compiler/native-source '(test2))
+
+;(jank.compiler/native-source '(try (/ 1 0) (catch e (println e))))
+
+
+;(def a 1)
+;
+;(try
+;  (throw a)
+;  (catch e
+;    (when (= a e)
+;      :success))
+;  (finally
+;    (assert (= 1 a))))
+
+;(jank.compiler/native-source
+;  '(try
+;    (throw a)
+;    (catch e
+;      (when (= a e)
+;        :success))
+;    (finally
+;      (assert (= 1 a)))))
+
+
+;(let* [a 1]
+;  (try
+;    (throw a)
+;    (catch e
+;      (when (= a e)
+;        :success))
+;    (finally
+;      (assert (= 1 a)))))
+
+;(jank.compiler/native-source
+;  '(let* [a 1]
+;    (try (throw a) (catch e (when (= a e) :success)) (finally (assert (= 1 a))))))

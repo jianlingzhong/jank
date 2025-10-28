@@ -1,5 +1,8 @@
 #pragma once
 
+#include "jank/runtime/obj/transient_vector.hpp"
+
+
 #include <filesystem>
 
 #include <jtl/ptr.hpp>
@@ -99,5 +102,16 @@ namespace jank::detail
   object_ref to_runtime_data(T const * const m)
   {
     return m;
+  }
+
+  template <typename T>
+  object_ref to_runtime_data(native_vector<jtl::option<T>> const &m)
+  {
+    runtime::detail::native_persistent_vector ret;
+    for(auto const &e : m)
+    {
+      (void)ret.push_back(to_runtime_data(e));
+    }
+    return make_box<obj::persistent_vector>(ret);
   }
 }

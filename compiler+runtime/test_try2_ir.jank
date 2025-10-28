@@ -1,0 +1,12 @@
+(require 'jank.compiler)
+(jank.compiler/native-source '(let [steps (atom [])
+                                    b (fn* b []
+                                           (try
+                                             (throw :bthrow)
+                                             (catch e (throw e))
+                                             (finally (swap! steps conj :b-finally))))
+                                    a (fn* a []
+                                           (try
+                                             (b)
+                                             (catch e (swap! steps conj :a-catch))))]
+                                (a)))

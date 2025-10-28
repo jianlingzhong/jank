@@ -1,0 +1,13 @@
+(let* [steps (atom [])]
+      (letfn [(a []
+                (try
+                  (b)
+                  (catch e
+                         (swap! steps conj :a-catch))))
+              (b []
+                (try
+                  (throw :ball)
+                  (finally
+                    (swap! steps conj :b-finally))))]
+        (a))
+      @steps)
