@@ -2715,18 +2715,22 @@ namespace jank::analyze
                 latest_expansion(macro_expansions));
             }
 
-            auto const sym_obj(catch_list->data.rest().first().unwrap());
-            if(sym_obj->type != runtime::object_type::symbol)
+            auto const exception_type(analyze(catch_list->data.rest().first().unwrap(),
+                                              current_frame,
+                                              position,
+                                              fn_ctx,
+                                              true));
+            auto const sym_obj(catch_list->data.rest().rest().first().unwrap());
+            if(exception_type.is_err()
+               || exception_type.expect_ok()->kind != expression_kind::cpp_type)
             {
-              return error::analyze_invalid_try(
-                       "A symbol required after 'catch', which is used as the binding to "
-                       "hold the exception value.",
-                       object_source(item),
-                       error::note{
-                         "A symbol is required before this form.",
-                         object_source(sym_obj),
-                       },
-                       latest_expansion(macro_expansions))
+              return error::analyze_invalid_try("An exception type required after 'catch'",
+                                                object_source(item),
+                                                error::note{
+                                                  "An exception type is required before this form.",
+                                                  object_source(sym_obj),
+                                                },
+                                                latest_expansion(macro_expansions))
                 ->add_usage(read::parse::reparse_nth(item, 1));
             }
 

@@ -1,0 +1,36 @@
+;(try
+;  (throw (cpp/std.chrono.milliseconds (cpp/int 100))))
+
+;(try
+;  (/ 1 0)
+;  (catch :default _ (println "default")))
+
+;(try
+;  (/ 1 0)
+;  (catch cpp/jank.runtime.object_ref o (println o))
+;  (catch cpp/int o (println o))
+;  (finally (println "finally")))
+
+;; --- Example 1: Basic try...catch ---
+
+;(try
+;  (println "Executing the 'try' block.")
+;  (throw {:error-type :oops :message "Something went wrong!"})
+;  (println "This will not be printed.")
+;
+;  (catch e
+;    (println "Caught an exception!")
+;    (println "Exception value:" e))
+;  (catch e
+;    (println "another catch"))
+;  )
+
+
+(try
+  (throw 4)
+  (catch e (println "caugth" e)))
+
+;; Expected Output:
+;; Executing the 'try' block.
+;; Caught an exception!
+;; Exception value: {:error-type :oops, :message "Something went wrong!"}
