@@ -154,12 +154,16 @@ namespace jank
         {
           opts.output_target = util::cli::compilation_target::object;
         }
+        else if(ext == ".a")
+        {
+          opts.output_target = util::cli::compilation_target::static_lib;
+        }
         else
         {
           /* TODO: Dedicated error. */
           throw error::internal_failure(
             util::format("Unable to determine the output target type, given output file name '{}'. "
-                         "If you provide a '.ll', '.cpp', or '.o' extension, this can be inferred. "
+                         "If you provide a '.ll', '.cpp', '.o', or '.a' extension, this can be inferred. "
                          "Otherwise, please provide the --output-type flag to specify.",
                          opts.output_module_filename));
         }
@@ -170,7 +174,8 @@ namespace jank
       auto const ext{ std::filesystem::path{ opts.output_module_filename }.extension() };
       if((ext == ".ll" && opts.output_target != util::cli::compilation_target::llvm_ir)
          || (ext == ".cpp" && opts.output_target != util::cli::compilation_target::cpp)
-         || (ext == ".o" && opts.output_target != util::cli::compilation_target::object))
+         || (ext == ".o" && opts.output_target != util::cli::compilation_target::object)
+         || (ext == ".a" && opts.output_target != util::cli::compilation_target::static_lib))
       {
         error::warn(util::format("The output file name '{}' has the extension '{}', but the output "
                                  "target is '{}'. These appear to be mismatched.",

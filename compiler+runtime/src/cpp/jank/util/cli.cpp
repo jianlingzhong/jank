@@ -392,6 +392,10 @@ OPTIONS
           {
             opts.output_target = compilation_target::object;
           }
+          else if(value == "static-lib")
+          {
+            opts.output_target = compilation_target::static_lib;
+          }
           else
           {
             throw util::format("Invalid output type '{}'.", value);

@@ -567,6 +567,9 @@ namespace jank::runtime
       case util::cli::compilation_target::object:
         ext = "o";
         break;
+      case util::cli::compilation_target::static_lib:
+        ext = "a";
+        break;
       case util::cli::compilation_target::unspecified:
       default:
         throw error::internal_runtime_failure(
@@ -621,16 +624,20 @@ namespace jank::runtime
           return ok();
         }
       case util::cli::compilation_target::object:
+      case util::cli::compilation_target::static_lib:
         {
+          auto const is_static_lib{ util::cli::opts.output_target == util::cli::compilation_target::static_lib };
+          std::string const obj_path{ is_static_lib ? std::string{ util::format("{}.{}.o", module_path.c_str(), module_name.c_str()).c_str() } : std::string{ module_path.c_str() } };
+
           /* TODO: Is there a better place for this block of code? */
           std::error_code file_error{};
-          llvm::raw_fd_ostream os(module_path.c_str(),
+          llvm::raw_fd_ostream os(obj_path,
                                   file_error,
                                   llvm::sys::fs::OpenFlags::OF_None);
           if(file_error)
           {
             return err(util::format("Failed to open module file '{}' with error '{}'.",
-                                    module_path.c_str(),
+                                    obj_path,
                                     file_error.message()));
           }
           //module->print(llvm::outs(), nullptr);
@@ -668,6 +675,18 @@ namespace jank::runtime
           }
 
           pass.run(*module);
+
+          if(is_static_lib)
+          {
+            os.flush();
+            auto const ar_cmd{ util::format("ar rcs {} {}", module_path.c_str(), obj_path) };
+            if(system(ar_cmd.c_str()) != 0)
+            {
+               return err(std::string("Failed to create static library"));
+            }
+            std::filesystem::remove(obj_path);
+          }
+
           return ok();
         }
       case util::cli::compilation_target::unspecified:

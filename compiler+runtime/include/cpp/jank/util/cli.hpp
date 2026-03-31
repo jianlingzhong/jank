@@ -41,7 +41,8 @@ namespace jank::util::cli
     unspecified,
     llvm_ir,
     cpp,
-    object
+    object,
+    static_lib
   };
 
   constexpr char const *compilation_target_str(compilation_target const target)
@@ -56,6 +57,8 @@ namespace jank::util::cli
         return "cpp";
       case compilation_target::object:
         return "object";
+      case compilation_target::static_lib:
+        return "static-lib";
       default:
         return "unknown";
     }
